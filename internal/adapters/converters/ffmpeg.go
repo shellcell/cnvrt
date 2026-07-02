@@ -84,6 +84,10 @@ func NewFFmpeg(runner ports.CommandRunner) *FFmpeg {
 
 func (c *FFmpeg) ID() string { return "ffmpeg" }
 
+func (c *FFmpeg) Description() string {
+	return "video/audio/animation conversion, audio extraction, gif rendering"
+}
+
 func (c *FFmpeg) RequiredCommands() []string { return []string{"ffmpeg"} }
 
 func (c *FFmpeg) Capabilities() []domain.ConversionCapability {

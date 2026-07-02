@@ -60,6 +60,10 @@ func NewSevenZip(runner ports.CommandRunner) *SevenZip {
 
 func (c *SevenZip) ID() string { return "7z" }
 
+func (c *SevenZip) Description() string {
+	return "broad archive/package extraction and 7z/zip creation"
+}
+
 func (c *SevenZip) RequiredCommands() []string { return []string{"7z"} }
 
 func (c *SevenZip) Capabilities() []domain.ConversionCapability {

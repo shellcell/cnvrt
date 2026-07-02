@@ -46,6 +46,10 @@ func NewPandoc(runner ports.CommandRunner) *Pandoc {
 
 func (c *Pandoc) ID() string { return "pandoc" }
 
+func (c *Pandoc) Description() string {
+	return "text documents: markdown, html, docx, epub, tex, rst, org, pdf"
+}
+
 func (c *Pandoc) RequiredCommands() []string { return []string{"pandoc"} }
 
 func (c *Pandoc) Capabilities() []domain.ConversionCapability {

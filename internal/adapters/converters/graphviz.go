@@ -24,6 +24,10 @@ func NewGraphviz(runner ports.CommandRunner) *Graphviz {
 
 func (c *Graphviz) ID() string { return "graphviz" }
 
+func (c *Graphviz) Description() string {
+	return "dot graph files -> svg, png, pdf"
+}
+
 func (c *Graphviz) RequiredCommands() []string { return []string{"dot"} }
 
 func (c *Graphviz) Capabilities() []domain.ConversionCapability {

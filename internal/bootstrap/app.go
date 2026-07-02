@@ -28,11 +28,12 @@ func (a *App) Run(ctx context.Context, args []string, stdin io.Reader, stdout io
 	runner := execadapter.NewRunner()
 	fs := fsadapter.NewFileSystem()
 	discovery := fsadapter.NewDiscovery()
-	preferences, palette, err := settings.Load()
+	preferences, palette, uiOptions, err := settings.Load()
 	if err != nil {
 		fmt.Fprintf(stderr, "warning: could not load settings: %v\n", err)
 	}
 	prompt := promptadapter.New(stdin, stdout, palette)
+	prompt.SetShowHelp(uiOptions.ShowHelp)
 	progress := progressadapter.New(stdout, palette)
 	configured, err := toolconfig.Load(runner)
 	if err != nil {
@@ -59,6 +60,10 @@ func (a *App) Run(ctx context.Context, args []string, stdin io.Reader, stdout io
 		converters.NewGraphviz(runner),
 		converters.NewMermaid(runner),
 		converters.NewJupyter(runner),
+		converters.NewPoppler(runner),
+		converters.NewTesseract(runner),
+		converters.NewTTS(runner),
+		converters.NewWhisper(runner),
 		converters.NewImageMagick(runner),
 	}
 	converterList = append(converterList, configured.Converters...)

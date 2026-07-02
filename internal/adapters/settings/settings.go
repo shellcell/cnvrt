@@ -15,6 +15,7 @@ import (
 type Config struct {
 	Tools          map[string]map[string]json.RawMessage `json:"tools"`
 	Pairs          []PairConfig                          `json:"pairs"`
+	Backends       map[string]json.RawMessage            `json:"backends"`
 	Theme          string                                `json:"theme"`
 	Colors         map[string]string                     `json:"colors"`
 	CategoryColors map[string]string                     `json:"category_colors"`
@@ -25,6 +26,12 @@ type UIConfig struct {
 	Theme          string            `json:"theme"`
 	Colors         map[string]string `json:"colors"`
 	CategoryColors map[string]string `json:"category_colors"`
+	ShowHelp       *bool             `json:"show_help,omitempty"`
+}
+
+// Options are non-color UI preferences loaded from settings files.
+type Options struct {
+	ShowHelp bool
 }
 
 type PairConfig struct {
@@ -35,10 +42,11 @@ type PairConfig struct {
 	Options     map[string]map[string]json.RawMessage `json:"options"`
 }
 
-func Load() (app.Preferences, theme.Palette, error) {
+func Load() (app.Preferences, theme.Palette, Options, error) {
+	options := Options{ShowHelp: true}
 	paths, err := configPaths()
 	if err != nil {
-		return app.Preferences{}, theme.Default(), err
+		return app.Preferences{}, theme.Default(), options, err
 	}
 
 	preferences := app.Preferences{ToolOptions: domain.ToolOptions{}}
@@ -46,19 +54,151 @@ func Load() (app.Preferences, theme.Palette, error) {
 	for _, path := range paths {
 		config, err := readConfig(path)
 		if err != nil {
-			return preferences, palette, err
+			return preferences, palette, options, err
 		}
 
 		loaded, loadedPalette, err := build(config)
 		if err != nil {
-			return preferences, palette, fmt.Errorf("%s: %w", path, err)
+			return preferences, palette, options, fmt.Errorf("%s: %w", path, err)
 		}
 		preferences.ToolOptions = preferences.ToolOptions.Merge(loaded.ToolOptions)
 		preferences.Pairs = append(preferences.Pairs, loaded.Pairs...)
+		if len(loaded.Backends) > 0 {
+			if preferences.Backends == nil {
+				preferences.Backends = map[string][]string{}
+			}
+			for key, tools := range loaded.Backends {
+				preferences.Backends[key] = tools
+			}
+		}
 		palette = palette.Merge(loadedPalette)
+		if config.UI.ShowHelp != nil {
+			options.ShowHelp = *config.UI.ShowHelp
+		}
 	}
 
-	return preferences, palette, nil
+	return preferences, palette, options, nil
+}
+
+// decodeBackendPreferences normalizes "input->output" or "input" keys and
+// accepts a string or list of backend IDs as values.
+func decodeBackendPreferences(raw map[string]json.RawMessage) (map[string][]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	result := map[string][]string{}
+	for key, rawValue := range raw {
+		tools := decodeStringList(rawValue)
+		if len(tools) == 0 {
+			continue
+		}
+		normalized, err := normalizeBackendKey(key)
+		if err != nil {
+			return nil, err
+		}
+		result[normalized] = tools
+	}
+	return result, nil
+}
+
+func normalizeBackendKey(key string) (string, error) {
+	parts := strings.SplitN(key, "->", 2)
+	input, err := domain.ParseFormat(parts[0])
+	if err != nil {
+		return "", fmt.Errorf("backends key %q: %w", key, err)
+	}
+	if len(parts) == 1 {
+		return input.String(), nil
+	}
+	output, err := domain.ParseFormat(parts[1])
+	if err != nil {
+		return "", fmt.Errorf("backends key %q: %w", key, err)
+	}
+	return app.BackendKey(input, output), nil
+}
+
+// UserConfigPath is the file the config command writes.
+func UserConfigPath() (string, error) {
+	root, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, "convert", "settings.json"), nil
+}
+
+// SaveUserConfig merges the given theme/show-help/backend-preference values
+// into the user settings file, preserving any other keys already present.
+func SaveUserConfig(themeName string, showHelp bool, backendPrefs map[string]string) (string, error) {
+	path, err := UserConfigPath()
+	if err != nil {
+		return "", err
+	}
+
+	raw := map[string]json.RawMessage{}
+	if data, err := os.ReadFile(path); err == nil {
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return "", fmt.Errorf("%s: %w", path, err)
+		}
+	}
+
+	if len(backendPrefs) > 0 {
+		backends := map[string]json.RawMessage{}
+		if existing, ok := raw["backends"]; ok {
+			_ = json.Unmarshal(existing, &backends)
+		}
+		for key, backend := range backendPrefs {
+			normalized, err := normalizeBackendKey(key)
+			if err != nil {
+				return "", err
+			}
+			encoded, err := json.Marshal(backend)
+			if err != nil {
+				return "", err
+			}
+			backends[normalized] = encoded
+		}
+		encoded, err := json.Marshal(backends)
+		if err != nil {
+			return "", err
+		}
+		raw["backends"] = encoded
+	}
+
+	ui := map[string]json.RawMessage{}
+	if existing, ok := raw["ui"]; ok {
+		_ = json.Unmarshal(existing, &ui)
+	}
+	if themeName != "" {
+		encoded, err := json.Marshal(themeName)
+		if err != nil {
+			return "", err
+		}
+		ui["theme"] = encoded
+	}
+	encodedShowHelp, err := json.Marshal(showHelp)
+	if err != nil {
+		return "", err
+	}
+	ui["show_help"] = encodedShowHelp
+
+	encodedUI, err := json.Marshal(ui)
+	if err != nil {
+		return "", err
+	}
+	raw["ui"] = encodedUI
+
+	data, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	data = append(data, '\n')
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func configPaths() ([]string, error) {
@@ -101,6 +241,11 @@ func readConfig(path string) (Config, error) {
 
 func build(config Config) (app.Preferences, theme.Palette, error) {
 	preferences := app.Preferences{ToolOptions: decodeToolOptions(config.Tools)}
+	backends, err := decodeBackendPreferences(config.Backends)
+	if err != nil {
+		return preferences, theme.Default(), err
+	}
+	preferences.Backends = backends
 	for _, pairConfig := range config.Pairs {
 		input, err := domain.ParseFormat(pairConfig.Input)
 		if err != nil {

@@ -22,11 +22,13 @@ import (
 )
 
 type Prompt struct {
-	source io.Reader
-	in     *bufio.Reader
-	out    io.Writer
+	source   io.Reader
+	in       *bufio.Reader
+	out      io.Writer
+	showHelp bool
 
 	titleStyle                  lipgloss.Style
+	keyStyle                    lipgloss.Style
 	numberStyle                 lipgloss.Style
 	hintStyle                   lipgloss.Style
 	flagStyle                   lipgloss.Style
@@ -52,7 +54,9 @@ func New(in io.Reader, out io.Writer, palettes ...theme.Palette) *Prompt {
 		source:                      in,
 		in:                          bufio.NewReader(in),
 		out:                         out,
+		showHelp:                    true,
 		titleStyle:                  lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palette.Title)),
+		keyStyle:                    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palette.Number)),
 		numberStyle:                 lipgloss.NewStyle().Foreground(lipgloss.Color(palette.Number)),
 		hintStyle:                   lipgloss.NewStyle().Foreground(lipgloss.Color(palette.Hint)),
 		flagStyle:                   lipgloss.NewStyle().Foreground(lipgloss.Color(palette.Flag)),
@@ -67,6 +71,48 @@ func New(in io.Reader, out io.Writer, palettes ...theme.Palette) *Prompt {
 		categorySelectedStyles:      categorySelectedStyles,
 		categorySelectedFaintStyles: categorySelectedFaintStyles,
 	}
+}
+
+// SetShowHelp toggles the key-hint helper lines in interactive prompts.
+func (p *Prompt) SetShowHelp(show bool) {
+	p.showHelp = show
+}
+
+// helpLine renders alternating key/description pairs ("enter", "selects",
+// ...) with keys highlighted. Returns "" when helper lines are disabled.
+func (p *Prompt) helpLine(pairs ...string) string {
+	if !p.showHelp {
+		return ""
+	}
+	var b strings.Builder
+	for i := 0; i+1 < len(pairs); i += 2 {
+		if i > 0 {
+			b.WriteString(p.hintStyle.Render(", "))
+		}
+		b.WriteString(p.keyStyle.Render(pairs[i]))
+		b.WriteString(p.hintStyle.Render(" " + pairs[i+1]))
+	}
+	return b.String()
+}
+
+func (p *Prompt) SelectBackend(ctx context.Context, input domain.Format, output domain.Format, choices []ports.BackendChoice) (string, error) {
+	if len(choices) == 0 {
+		return "", fmt.Errorf("no backends to select")
+	}
+	// Non-terminal runs stay scriptable: take the best-ranked backend.
+	if !p.hasTerminal() {
+		return choices[0].ID, nil
+	}
+
+	options := make([]selectPromptOption[string], 0, len(choices))
+	for _, choice := range choices {
+		options = append(options, selectPromptOption[string]{
+			Label: choice.ID,
+			Value: choice.ID,
+			Hint:  choice.Description,
+		})
+	}
+	return selectValueTerminal(ctx, p, "Select backend", "Several installed backends can convert "+input.String()+" -> "+output.String()+".", options)
 }
 
 func (p *Prompt) SelectFiles(ctx context.Context, files []domain.FileRef) ([]domain.FileRef, error) {
@@ -475,6 +521,7 @@ func selectValueTerminal[T comparable](ctx context.Context, p *Prompt, title str
 		description:   description,
 		options:       options,
 		height:        p.listHeight(6),
+		help:          p.helpLine("↑/↓", "moves", "enter", "selects", "q", "quits"),
 		titleStyle:    p.titleStyle,
 		numberStyle:   p.numberStyle,
 		hintStyle:     p.hintStyle,
@@ -506,6 +553,7 @@ type selectPromptModel[T comparable] struct {
 	cursor        int
 	offset        int
 	height        int
+	help          string
 	result        T
 	submitted     bool
 	aborted       bool
@@ -547,6 +595,13 @@ func (m *selectPromptModel[T]) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.submitted = true
 			return m, tea.Quit
 		}
+	case tea.MouseWheelMsg:
+		switch msg.Button {
+		case tea.MouseWheelUp:
+			m.move(-1)
+		case tea.MouseWheelDown:
+			m.move(1)
+		}
 	}
 	return m, nil
 }
@@ -559,8 +614,10 @@ func (m *selectPromptModel[T]) View() tea.View {
 		b.WriteString(m.description)
 		b.WriteString("\n")
 	}
-	b.WriteString(m.hintStyle.Render("up/down moves, enter selects, q quits"))
-	b.WriteString("\n")
+	if m.help != "" {
+		b.WriteString(m.help)
+		b.WriteString("\n")
+	}
 	end := minInt(len(m.options), m.offset+m.height)
 	for i := m.offset; i < end; i++ {
 		option := m.options[i]
@@ -582,7 +639,15 @@ func (m *selectPromptModel[T]) View() tea.View {
 		b.WriteString(m.hintStyle.Render(fmt.Sprintf("Showing %d-%d of %d", m.offset+1, end, len(m.options))))
 		b.WriteString("\n")
 	}
-	return tea.NewView(b.String())
+	return mouseView(b.String())
+}
+
+// mouseView wraps rendered prompt output in a view with mouse reporting on,
+// so wheel scrolling and clicking work in every picker.
+func mouseView(content string) tea.View {
+	view := tea.NewView(content)
+	view.MouseMode = tea.MouseModeCellMotion
+	return view
 }
 
 func (m *selectPromptModel[T]) move(delta int) {
@@ -614,6 +679,7 @@ func (p *Prompt) inputTerminal(ctx context.Context, config inputPromptConfig) (s
 		title:       config.Title,
 		description: config.Description,
 		placeholder: config.Placeholder,
+		help:        p.helpLine("enter", "accepts", "ctrl+c", "quits"),
 		value:       []rune(config.Value),
 		cursor:      len([]rune(config.Value)),
 		validate:    config.Validate,
@@ -644,6 +710,7 @@ type inputPromptModel struct {
 	title       string
 	description string
 	placeholder string
+	help        string
 	value       []rune
 	cursor      int
 	err         string
@@ -721,8 +788,10 @@ func (m *inputPromptModel) View() tea.View {
 		b.WriteString(m.errorStyle.Render(m.err))
 		b.WriteString("\n")
 	}
-	b.WriteString(m.hintStyle.Render("enter accepts, ctrl+c quits"))
-	b.WriteString("\n")
+	if m.help != "" {
+		b.WriteString(m.help)
+		b.WriteString("\n")
+	}
 	return tea.NewView(b.String())
 }
 
@@ -790,6 +859,33 @@ type filePickerEntry struct {
 	label       string
 	searchText  string
 	formatLabel string
+	size        int64
+}
+
+type pickerSortMode int
+
+const (
+	sortByName pickerSortMode = iota
+	sortByNameDesc
+	sortBySize
+	sortBySizeDesc
+	sortByFormat
+	sortModeCount
+)
+
+func (m pickerSortMode) String() string {
+	switch m {
+	case sortByNameDesc:
+		return "name desc"
+	case sortBySize:
+		return "size"
+	case sortBySizeDesc:
+		return "size desc"
+	case sortByFormat:
+		return "format"
+	default:
+		return "name"
+	}
 }
 
 type filePickerPosition struct {
@@ -810,6 +906,9 @@ type filePickerModel struct {
 	offset         int
 	height         int
 	width          int
+	sortMode       pickerSortMode
+	help           string
+	filterHelp     string
 	filter         string
 	filtering      bool
 	pendingG       bool
@@ -846,8 +945,14 @@ func newFilePickerModel(p *Prompt, root string, files []domain.FileRef) *filePic
 		dimStyle:       p.dimStyle,
 		errorStyle:     p.errorStyle,
 		categoryStyles: p.categoryStyles,
+		help: p.helpLine(
+			"enter/→", "opens dirs", "←", "goes up", "space/x", "selects",
+			"a", "selects filtered", "c", "clears", "/", "filters", "s", "sorts", "q", "quits",
+		),
+		filterHelp: p.helpLine("enter", "keeps filter", "esc", "clears"),
 	}
 	model.entries = entriesFromFiles(files, false, p.categoryStyles)
+	model.applySort()
 	return model
 }
 
@@ -915,6 +1020,9 @@ func (m *filePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "c", "C":
 			m.pendingG = false
 			m.clearSelection()
+		case "s", "S":
+			m.pendingG = false
+			m.cycleSort()
 		case "enter":
 			m.pendingG = false
 			m.enterCurrent()
@@ -930,21 +1038,52 @@ func (m *filePickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			m.pendingG = false
 		}
+	case tea.MouseWheelMsg:
+		switch msg.Button {
+		case tea.MouseWheelUp:
+			m.move(-1)
+		case tea.MouseWheelDown:
+			m.move(1)
+		}
 	}
 	return m, nil
+}
+
+func (m *filePickerModel) cycleSort() {
+	m.sortMode = (m.sortMode + 1) % sortModeCount
+	m.applySort()
+	m.cursor = 0
+	m.offset = 0
+	m.err = ""
+}
+
+func (m *filePickerModel) applySort() {
+	sortPickerEntries(m.entries, m.sortMode)
 }
 
 func (m *filePickerModel) View() tea.View {
 	var b strings.Builder
 	b.WriteString(m.titleStyle.Render("Select input files"))
 	b.WriteString("\n")
-	b.WriteString(m.hintStyle.Render("enter/right opens dirs, left goes up, space/x selects, a selects filtered, c clears selection, / filters, esc clears, q quits"))
-	b.WriteString("\n")
+	if m.help != "" {
+		b.WriteString(m.help)
+		b.WriteString("\n")
+	}
 	b.WriteString(m.dimStyle.Render(filepath.Clean(m.currentDir)))
+	if m.sortMode != sortByName {
+		b.WriteString(m.dimStyle.Render("  sort: " + m.sortMode.String()))
+	}
 	b.WriteString("\n")
 	if m.filtering || m.filter != "" {
 		b.WriteString(m.promptStyle.Render("Filter: "))
 		b.WriteString(m.filter)
+		if m.filtering {
+			b.WriteString(m.promptStyle.Render("▏"))
+			if m.filterHelp != "" {
+				b.WriteString("  ")
+				b.WriteString(m.filterHelp)
+			}
+		}
 		b.WriteString("\n")
 	}
 
@@ -982,7 +1121,7 @@ func (m *filePickerModel) View() tea.View {
 		b.WriteString(m.errorStyle.Render(m.err))
 		b.WriteString("\n")
 	}
-	return tea.NewView(b.String())
+	return mouseView(b.String())
 }
 
 func (m *filePickerModel) updateFilter(msg tea.KeyPressMsg) {
@@ -1156,6 +1295,7 @@ func (m *filePickerModel) openDir(path string) {
 	m.savePosition()
 	m.currentDir = target
 	m.entries = entries
+	m.applySort()
 	m.restorePosition(target)
 	m.filtering = false
 	m.err = ""
@@ -1208,6 +1348,7 @@ type formatPickerEntry struct {
 	choice      ports.FormatChoice
 	category    string
 	label       string
+	backends    string
 	reasonLabel string
 	searchText  string
 }
@@ -1221,6 +1362,10 @@ type formatPickerModel struct {
 	cursor                      int
 	offset                      int
 	height                      int
+	sortMode                    int
+	help                        string
+	note                        string
+	filterHelp                  string
 	filter                      string
 	filtering                   bool
 	pendingG                    bool
@@ -1230,26 +1375,37 @@ type formatPickerModel struct {
 	titleStyle                  lipgloss.Style
 	numberStyle                 lipgloss.Style
 	hintStyle                   lipgloss.Style
+	promptStyle                 lipgloss.Style
 	unavailable                 lipgloss.Style
 	selectedStyle               lipgloss.Style
 	errorStyle                  lipgloss.Style
 }
 
 func newFormatPickerModel(p *Prompt, choices []ports.FormatChoice) *formatPickerModel {
+	// Column widths are computed over all rows so the format, category, and
+	// backends columns line up.
+	formatWidth, categoryWidth := 0, 0
+	for _, choice := range choices {
+		formatWidth = maxInt(formatWidth, len(choice.Format.String()))
+		categoryWidth = maxInt(categoryWidth, len(formatCategory(choice.Format)))
+	}
+
 	entries := make([]formatPickerEntry, 0, len(choices))
 	for _, choice := range choices {
 		category := formatCategory(choice.Format)
-		label := formatChoiceLabel(choice.Format)
-		reasonLabel := label
+		label := padRight(choice.Format.String(), formatWidth)
+		backends := strings.Join(choice.Backends, ", ")
+		reasonLabel := label + "  " + padRight(category, categoryWidth)
 		if choice.Reason != "" {
 			reasonLabel += "  " + choice.Reason
 		}
 		entries = append(entries, formatPickerEntry{
 			choice:      choice,
-			category:    category,
+			category:    padRight(category, categoryWidth),
 			label:       label,
+			backends:    backends,
 			reasonLabel: reasonLabel,
-			searchText:  strings.ToLower(choice.Format.String() + " " + category + " " + choice.Reason),
+			searchText:  strings.ToLower(choice.Format.String() + " " + category + " " + choice.Reason + " " + backends),
 		})
 	}
 	return &formatPickerModel{
@@ -1259,12 +1415,19 @@ func newFormatPickerModel(p *Prompt, choices []ports.FormatChoice) *formatPicker
 		categorySelectedStyles:      p.categorySelectedStyles,
 		categorySelectedFaintStyles: p.categorySelectedFaintStyles,
 		height:                      p.listHeight(6),
-		titleStyle:                  p.titleStyle,
-		numberStyle:                 p.numberStyle,
-		hintStyle:                   p.hintStyle,
-		unavailable:                 p.unavailableStyle,
-		selectedStyle:               p.selectedStyle,
-		errorStyle:                  p.errorStyle,
+		help: p.helpLine(
+			"space/x/enter", "selects", "/", "filters", "s", "sorts",
+			"gg", "top", "G", "end", "q", "quits",
+		),
+		note:          p.hintStyle.Render("dimmed formats need install"),
+		filterHelp:    p.helpLine("enter", "keeps filter", "esc", "clears"),
+		titleStyle:    p.titleStyle,
+		numberStyle:   p.numberStyle,
+		hintStyle:     p.hintStyle,
+		promptStyle:   p.promptStyle,
+		unavailable:   p.unavailableStyle,
+		selectedStyle: p.selectedStyle,
+		errorStyle:    p.errorStyle,
 	}
 }
 
@@ -1315,6 +1478,9 @@ func (m *formatPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "end", "G", "shift+g", "ctrl+e":
 			m.pendingG = false
 			m.goEnd()
+		case "s", "S":
+			m.pendingG = false
+			m.cycleSort()
 		case "enter", "space", "x":
 			m.pendingG = false
 			m.selectCurrent()
@@ -1324,19 +1490,71 @@ func (m *formatPickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			m.pendingG = false
 		}
+	case tea.MouseWheelMsg:
+		switch msg.Button {
+		case tea.MouseWheelUp:
+			m.move(-1)
+		case tea.MouseWheelDown:
+			m.move(1)
+		}
 	}
 	return m, nil
+}
+
+// cycleSort switches between name, reverse name, and category ordering.
+func (m *formatPickerModel) cycleSort() {
+	m.sortMode = (m.sortMode + 1) % 3
+	mode := m.sortMode
+	sort.SliceStable(m.choices, func(i, j int) bool {
+		switch mode {
+		case 1:
+			return m.choices[i].label > m.choices[j].label
+		case 2:
+			if m.choices[i].category != m.choices[j].category {
+				return m.choices[i].category < m.choices[j].category
+			}
+		}
+		return m.choices[i].label < m.choices[j].label
+	})
+	m.cursor = 0
+	m.offset = 0
+}
+
+func (m *formatPickerModel) sortModeName() string {
+	switch m.sortMode {
+	case 1:
+		return "name desc"
+	case 2:
+		return "category"
+	default:
+		return "name"
+	}
 }
 
 func (m *formatPickerModel) View() tea.View {
 	var b strings.Builder
 	b.WriteString(m.titleStyle.Render("Select output format"))
 	b.WriteString("\n")
-	b.WriteString(m.hintStyle.Render("space/x/enter selects, dimmed formats need install, / filters, esc clears, gg/ctrl+a top, G/ctrl+e end, q quits"))
-	b.WriteString("\n")
+	if m.help != "" {
+		b.WriteString(m.help)
+		b.WriteString("  ")
+		b.WriteString(m.note)
+		b.WriteString("\n")
+	}
+	if m.sortMode != 0 {
+		b.WriteString(m.hintStyle.Render("sort: " + m.sortModeName()))
+		b.WriteString("\n")
+	}
 	if m.filtering || m.filter != "" {
-		b.WriteString(m.hintStyle.Render("Filter: "))
+		b.WriteString(m.promptStyle.Render("Filter: "))
 		b.WriteString(m.filter)
+		if m.filtering {
+			b.WriteString(m.promptStyle.Render("▏"))
+			if m.filterHelp != "" {
+				b.WriteString("  ")
+				b.WriteString(m.filterHelp)
+			}
+		}
 		b.WriteString("\n")
 	}
 
@@ -1365,7 +1583,7 @@ func (m *formatPickerModel) View() tea.View {
 		b.WriteString(m.errorStyle.Render(m.err))
 		b.WriteString("\n")
 	}
-	return tea.NewView(b.String())
+	return mouseView(b.String())
 }
 
 func (m *formatPickerModel) updateFilter(msg tea.KeyPressMsg) {
@@ -1411,14 +1629,25 @@ func (m *formatPickerModel) renderChoice(entry formatPickerEntry, selected bool)
 		return m.unavailable.Render(entry.reasonLabel)
 	}
 
-	category := entry.category
+	category := strings.TrimSpace(entry.category)
 	style := formatStyle(m.categoryStyles, category)
 	categoryStyle := formatStyle(m.categoryFaintStyles, category)
 	if selected {
 		style = formatStyle(m.categorySelectedStyles, category)
 		categoryStyle = formatStyle(m.categorySelectedFaintStyles, category)
 	}
-	return style.Render(entry.choice.Format.String()) + " " + categoryStyle.Render("("+category+")")
+	line := style.Render(entry.label) + "  " + categoryStyle.Render(entry.category)
+	if entry.backends != "" {
+		line += "  " + m.hintStyle.Render("via "+entry.backends)
+	}
+	return line
+}
+
+func padRight(value string, width int) string {
+	if len(value) >= width {
+		return value
+	}
+	return value + strings.Repeat(" ", width-len(value))
 }
 
 func (m *formatPickerModel) move(delta int) {
@@ -1472,7 +1701,7 @@ func entriesFromFiles(files []domain.FileRef, includeParent bool, styles map[str
 	for _, file := range files {
 		entries = append(entries, newFilePickerEntry(file, false, styles))
 	}
-	sortPickerEntries(entries)
+	sortPickerEntries(entries, sortByName)
 	return entries
 }
 
@@ -1481,6 +1710,12 @@ func newFilePickerEntry(file domain.FileRef, parent bool, styles map[string]lipg
 	if file.Format == domain.FormatDir && !strings.HasSuffix(label, "/") {
 		label += "/"
 	}
+	var size int64
+	if !parent && file.Path != "" {
+		if info, err := os.Stat(file.Path); err == nil && !info.IsDir() {
+			size = info.Size()
+		}
+	}
 	searchText := strings.ToLower(label + " " + file.Format.String() + " " + formatCategory(file.Format))
 	return filePickerEntry{
 		file:        file,
@@ -1488,6 +1723,7 @@ func newFilePickerEntry(file domain.FileRef, parent bool, styles map[string]lipg
 		label:       label,
 		searchText:  searchText,
 		formatLabel: formatLabel(styles, file.Format),
+		size:        size,
 	}
 }
 
@@ -1561,51 +1797,7 @@ func formatChoiceLabel(format domain.Format) string {
 }
 
 func formatCategory(format domain.Format) string {
-	switch format {
-	case domain.FormatDir:
-		return "directory"
-	case domain.FormatGIF, domain.FormatAPNG:
-		return "animation"
-	}
-	if format.IsImage() || format == domain.FormatSVG {
-		return "image"
-	}
-	if format.IsVideo() {
-		return "video"
-	}
-	if format.IsAudio() {
-		return "audio"
-	}
-	if format.IsArchive() {
-		return "archive"
-	}
-	if format.IsFont() {
-		return "font"
-	}
-	if format.IsDiskImage() {
-		return "disk"
-	}
-	switch format {
-	case domain.FormatEPUB, domain.FormatFB2, domain.FormatMOBI, domain.FormatAZW3, domain.FormatDJVU:
-		return "ebook"
-	case domain.FormatTXT, domain.FormatMD, domain.FormatHTML, domain.FormatRTF, domain.FormatTEX, domain.FormatDOCX, domain.FormatODT, domain.FormatPDF, domain.FormatPPTX:
-		return "doc"
-	case domain.FormatXLSX, domain.FormatODS:
-		return "spreadsheet"
-	case domain.FormatJSON, domain.FormatJSONL, domain.FormatYAML, domain.FormatTOML, domain.FormatCSV, domain.FormatTSV, domain.FormatINI, domain.FormatENV, domain.FormatXML, domain.FormatPLIST, domain.FormatSQL, domain.FormatSQLite, domain.FormatParquet, domain.FormatAvro, domain.FormatORC, domain.FormatArrow, domain.FormatFeather, domain.FormatBSON, domain.FormatMsgpack, domain.FormatCBOR:
-		return "data"
-	case domain.FormatDOT, domain.FormatMermaid:
-		return "diagram"
-	case domain.FormatIPYNB, domain.FormatPY:
-		return "code"
-	case domain.FormatGeoJSON, domain.FormatTopoJSON, domain.FormatKML, domain.FormatKMZ, domain.FormatGPX, domain.FormatSHP, domain.FormatGPKG, domain.FormatGML, domain.FormatOSM, domain.FormatPBF, domain.FormatMBTiles, domain.FormatPMTiles, domain.FormatMVT, domain.FormatWKT, domain.FormatWKB, domain.FormatLAS, domain.FormatLAZ, domain.FormatHGT:
-		return "geo"
-	case domain.FormatOpenAPI, domain.FormatSwagger, domain.FormatJSONSchema, domain.FormatAsyncAPI, domain.FormatGraphQL, domain.FormatProto, domain.FormatProtoSet, domain.FormatThrift, domain.FormatAvroSchema, domain.FormatFlatBuffers, domain.FormatCapnp, domain.FormatWSDL, domain.FormatXSD:
-		return "schema"
-	case domain.FormatOVA, domain.FormatOVF, domain.FormatVBox, domain.FormatVagrantBox:
-		return "vm"
-	}
-	return "custom"
+	return domain.CategoryOf(format)
 }
 
 func categoryStyleMaps(palette theme.Palette) (map[string]lipgloss.Style, map[string]lipgloss.Style, map[string]lipgloss.Style, map[string]lipgloss.Style) {
@@ -1631,7 +1823,9 @@ func formatStyle(styles map[string]lipgloss.Style, category string) lipgloss.Sty
 	return styles["custom"]
 }
 
-func sortPickerEntries(entries []filePickerEntry) {
+// sortPickerEntries keeps the parent entry and directories on top, then
+// orders files by the selected mode.
+func sortPickerEntries(entries []filePickerEntry, mode pickerSortMode) {
 	sort.SliceStable(entries, func(i, j int) bool {
 		if entries[i].parent != entries[j].parent {
 			return entries[i].parent
@@ -1641,7 +1835,28 @@ func sortPickerEntries(entries []filePickerEntry) {
 		if leftDir != rightDir {
 			return leftDir
 		}
-		return strings.ToLower(entries[i].file.Name) < strings.ToLower(entries[j].file.Name)
+
+		leftName := strings.ToLower(entries[i].file.Name)
+		rightName := strings.ToLower(entries[j].file.Name)
+		switch mode {
+		case sortByNameDesc:
+			return leftName > rightName
+		case sortBySize:
+			if entries[i].size != entries[j].size {
+				return entries[i].size < entries[j].size
+			}
+		case sortBySizeDesc:
+			if entries[i].size != entries[j].size {
+				return entries[i].size > entries[j].size
+			}
+		case sortByFormat:
+			leftFormat := entries[i].file.Format.String()
+			rightFormat := entries[j].file.Format.String()
+			if leftFormat != rightFormat {
+				return leftFormat < rightFormat
+			}
+		}
+		return leftName < rightName
 	})
 }
 
@@ -1696,6 +1911,9 @@ func (p *Prompt) selectFormatFallback(ctx context.Context, choices []ports.Forma
 	fmt.Fprintln(p.out, p.titleStyle.Render("Select output format"))
 	for i, choice := range choices {
 		label := formatStyle(p.categoryStyles, formatCategory(choice.Format)).Render(formatChoiceLabel(choice.Format))
+		if len(choice.Backends) > 0 {
+			label += " " + p.hintStyle.Render("via "+strings.Join(choice.Backends, ", "))
+		}
 		if !choice.Available {
 			label = p.hintStyle.Render(formatChoiceLabel(choice.Format))
 			if choice.Reason != "" {

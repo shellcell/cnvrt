@@ -402,12 +402,14 @@ Phase 1 completed:
 Next phases:
 
 - dedicated compressor port and compressor adapters
-- richer per-backend option schemas
 - recursive discovery
 - dry-run conversion plans
-- better backend priority sorting by capability priority
 - integration tests for installed tools
 - config validation command
 - richer shell-template support for config-defined tools
 - browser backend for HTML screenshots/PDF
-- optional backend preference config
+- OCR for scanned PDFs (rasterize + tesseract, or ocrmypdf)
+- mouse click selection in pickers (needs reliable view-relative mouse
+  coordinates in inline mode; wheel scrolling already works)
+- piper/whisper.cpp engines for TTS/STT alongside say/espeak-ng and
+  openai-whisper

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/shellcell/convert/internal/adapters/settings"
 	"github.com/shellcell/convert/internal/adapters/toolconfig"
 	"github.com/shellcell/convert/internal/app"
 	"github.com/shellcell/convert/internal/domain"
@@ -32,6 +33,11 @@ type Runner struct {
 	failStyle  lipgloss.Style
 	dimStyle   lipgloss.Style
 	hintStyle  lipgloss.Style
+	palette    theme.Palette
+}
+
+func (r *Runner) categoryStyle(category string) lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(r.palette.CategoryColor(category)))
 }
 
 func NewRunner(service *app.Service, fs ports.FileSystem, stdin io.Reader, stdout io.Writer, stderr io.Writer, palettes ...theme.Palette) *Runner {
@@ -51,6 +57,7 @@ func NewRunner(service *app.Service, fs ports.FileSystem, stdin io.Reader, stdou
 		failStyle:  lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palette.Fail)),
 		dimStyle:   lipgloss.NewStyle().Foreground(lipgloss.Color(palette.Dim)),
 		hintStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color(palette.Hint)),
+		palette:    palette,
 	}
 }
 
@@ -70,6 +77,8 @@ func (r *Runner) Run(ctx context.Context, args []string) int {
 			return r.addFormat()
 		case "add-tool":
 			return r.addTool()
+		case "config":
+			return r.editConfig()
 		case "help", "-h", "--help":
 			r.printUsage()
 			return 0
@@ -341,6 +350,7 @@ func (r *Runner) printUsageTo(w io.Writer) {
 	fmt.Fprintln(w, "  doctor    check external converter dependencies")
 	fmt.Fprintln(w, "  formats   list known and config-registered formats")
 	fmt.Fprintln(w, "  backends  list converter backends")
+	fmt.Fprintln(w, "  config    interactively edit and save user settings")
 	fmt.Fprintln(w, "  add-format  interactively add a config-defined format")
 	fmt.Fprintln(w, "  add-tool    interactively add a config-defined converter tool")
 }
@@ -519,54 +529,214 @@ func parseInstallConfigs(value string) []toolconfig.InstallConfig {
 	return installs
 }
 
+// editConfig interactively updates the user settings file.
+func (r *Runner) editConfig() int {
+	reader := bufio.NewReader(r.stdin)
+	fmt.Fprintln(r.stdout, r.titleStyle.Render("Configure convert"))
+	if path, err := settings.UserConfigPath(); err == nil {
+		fmt.Fprintln(r.stdout, r.dimStyle.Render("Settings file: "+path))
+	}
+
+	themeName, err := r.ask(reader, "Theme (nord, classic; empty keeps current)", false)
+	if err != nil {
+		fmt.Fprintf(r.stderr, "error: %v\n", err)
+		return 1
+	}
+	themeName = strings.ToLower(strings.TrimSpace(themeName))
+	if themeName != "" && themeName != "nord" && themeName != "classic" {
+		fmt.Fprintf(r.stderr, "error: unknown theme %q; use nord or classic\n", themeName)
+		return 1
+	}
+
+	helpAnswer, err := r.ask(reader, "Show key-hint helper lines? (Y/n)", false)
+	if err != nil {
+		fmt.Fprintf(r.stderr, "error: %v\n", err)
+		return 1
+	}
+	showHelp := true
+	switch strings.ToLower(strings.TrimSpace(helpAnswer)) {
+	case "n", "no", "false", "off", "0":
+		showHelp = false
+	}
+
+	fmt.Fprintln(r.stdout, r.dimStyle.Render("Preferred backends skip the backend question. Keys are pairs (svg->png) or input formats (pdf)."))
+	backendsAnswer, err := r.ask(reader, "Preferred backends, comma separated key=backend (example: svg->png=resvg, pdf=ghostscript)", false)
+	if err != nil {
+		fmt.Fprintf(r.stderr, "error: %v\n", err)
+		return 1
+	}
+	backendPrefs := map[string]string{}
+	for _, part := range splitCSV(backendsAnswer) {
+		key, backend, ok := strings.Cut(part, "=")
+		key = strings.TrimSpace(key)
+		backend = strings.TrimSpace(backend)
+		if !ok || key == "" || backend == "" {
+			fmt.Fprintf(r.stderr, "error: invalid backend preference %q; use key=backend\n", part)
+			return 1
+		}
+		backendPrefs[key] = backend
+	}
+
+	path, err := settings.SaveUserConfig(themeName, showHelp, backendPrefs)
+	if err != nil {
+		fmt.Fprintf(r.stderr, "error: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintf(r.stdout, "%s %s\n", r.okStyle.Render("saved"), path)
+	fmt.Fprintln(r.stdout, r.dimStyle.Render("Settings apply on the next run."))
+	return 0
+}
+
+// printDoctor renders one aligned status row per backend, with its purpose
+// and, for unavailable backends, what is missing and how to install it.
 func (r *Runner) printDoctor() {
+	reports := r.service.DependencyStatus()
+
+	nameWidth := 0
+	for _, report := range reports {
+		nameWidth = max(nameWidth, len(report.Backend))
+	}
+
 	fmt.Fprintln(r.stdout, r.titleStyle.Render("Backends"))
-	for _, report := range r.service.DependencyStatus() {
-		if len(report.Commands) == 0 {
-			fmt.Fprintf(r.stdout, "  %-14s %s\n", report.Backend, r.okStyle.Render("built-in"))
-			continue
+	ready := 0
+	for _, report := range reports {
+		var missing []app.CommandStatus
+		for _, command := range report.Commands {
+			if !command.Found {
+				missing = append(missing, command)
+			}
 		}
 
-		fmt.Fprintf(r.stdout, "  %s\n", report.Backend)
-		for _, command := range report.Commands {
-			state := r.failStyle.Render("missing")
-			if command.Found {
-				state = r.okStyle.Render("found")
-			}
-			fmt.Fprintf(r.stdout, "    %-18s %s\n", command.Name, state)
-			if !command.Found {
-				for _, hint := range command.Hints {
-					fmt.Fprintf(r.stdout, "      %s %s\n", r.hintStyle.Render("install:"), hint.Command)
-				}
+		badge := r.okStyle.Render("✓")
+		state := r.okStyle.Render("ready")
+		if len(report.Commands) == 0 {
+			state = r.okStyle.Render("built-in")
+		}
+		if len(missing) > 0 {
+			badge = r.failStyle.Render("✗")
+			state = r.failStyle.Render("missing " + joinCommandNames(missing))
+		} else {
+			ready++
+		}
+
+		fmt.Fprintf(r.stdout, "  %s %-*s  %s\n", badge, nameWidth, report.Backend, state)
+		if report.Description != "" {
+			fmt.Fprintf(r.stdout, "    %s\n", r.dimStyle.Render(report.Description))
+		}
+		for _, command := range missing {
+			for _, hint := range command.Hints {
+				fmt.Fprintf(r.stdout, "    %s %s\n", r.hintStyle.Render("install:"), hint.Command)
 			}
 		}
 	}
+
+	fmt.Fprintf(r.stdout, "\n%s %d of %d backends ready\n", r.titleStyle.Render("Summary:"), ready, len(reports))
 }
 
+func joinCommandNames(commands []app.CommandStatus) string {
+	names := make([]string, 0, len(commands))
+	for _, command := range commands {
+		names = append(names, command.Name)
+	}
+	return strings.Join(names, ", ")
+}
+
+// printFormats groups the known formats by category, one colored block per
+// category with wrapped format names.
 func (r *Runner) printFormats() {
 	formats := domain.AllFormats()
-	fmt.Fprintln(r.stdout, r.titleStyle.Render("Known formats"))
+	grouped := map[string][]string{}
 	for _, format := range formats {
-		fmt.Fprintf(r.stdout, "  %s\n", format)
+		category := domain.CategoryOf(format)
+		grouped[category] = append(grouped[category], format.String())
+	}
+
+	categories := make([]string, 0, len(grouped))
+	for category := range grouped {
+		categories = append(categories, category)
+	}
+	sort.Strings(categories)
+
+	fmt.Fprintf(r.stdout, "%s %s\n", r.titleStyle.Render("Known formats"), r.dimStyle.Render(fmt.Sprintf("(%d)", len(formats))))
+	for _, category := range categories {
+		names := grouped[category]
+		style := r.categoryStyle(category)
+		fmt.Fprintf(r.stdout, "\n%s %s\n", style.Bold(true).Render(category), r.dimStyle.Render(fmt.Sprintf("(%d)", len(names))))
+		for _, line := range wrapWords(names, 76) {
+			fmt.Fprintf(r.stdout, "  %s\n", style.Render(line))
+		}
 	}
 }
 
+// wrapWords joins words into lines no longer than width characters.
+func wrapWords(words []string, width int) []string {
+	var lines []string
+	var current string
+	for _, word := range words {
+		switch {
+		case current == "":
+			current = word
+		case len(current)+1+len(word) > width:
+			lines = append(lines, current)
+			current = word
+		default:
+			current += " " + word
+		}
+	}
+	if current != "" {
+		lines = append(lines, current)
+	}
+	return lines
+}
+
+// printBackends shows each backend with its description, required commands,
+// and a condensed inputs/outputs summary instead of the full pair matrix.
 func (r *Runner) printBackends() {
 	converters := r.service.Converters()
 	sort.Slice(converters, func(i, j int) bool { return converters[i].ID() < converters[j].ID() })
-	for _, converter := range converters {
+	for i, converter := range converters {
+		if i > 0 {
+			fmt.Fprintln(r.stdout)
+		}
 		fmt.Fprintln(r.stdout, r.titleStyle.Render(converter.ID()))
-		caps := converter.Capabilities()
-		sort.Slice(caps, func(i, j int) bool {
-			if caps[i].Input == caps[j].Input {
-				return caps[i].Output < caps[j].Output
-			}
-			return caps[i].Input < caps[j].Input
-		})
-		for _, capability := range caps {
-			fmt.Fprintf(r.stdout, "  %s -> %s\n", capability.Input, capability.Output)
+		if described, ok := converter.(ports.Describable); ok {
+			fmt.Fprintf(r.stdout, "  %s\n", r.dimStyle.Render(described.Description()))
+		}
+		if commands := converter.RequiredCommands(); len(commands) > 0 {
+			fmt.Fprintf(r.stdout, "  %s %s\n", r.hintStyle.Render("requires:"), strings.Join(commands, ", "))
+		} else {
+			fmt.Fprintf(r.stdout, "  %s\n", r.hintStyle.Render("built-in"))
+		}
+
+		inputs, outputs := capabilitySummary(converter.Capabilities())
+		for _, line := range wrapWords(inputs, 68) {
+			fmt.Fprintf(r.stdout, "  %s  %s\n", r.hintStyle.Render("inputs: "), line)
+		}
+		for _, line := range wrapWords(outputs, 68) {
+			fmt.Fprintf(r.stdout, "  %s  %s\n", r.hintStyle.Render("outputs:"), line)
 		}
 	}
+}
+
+func capabilitySummary(caps []domain.ConversionCapability) ([]string, []string) {
+	inputSet := map[string]bool{}
+	outputSet := map[string]bool{}
+	for _, capability := range caps {
+		inputSet[capability.Input.String()] = true
+		outputSet[capability.Output.String()] = true
+	}
+	inputs := make([]string, 0, len(inputSet))
+	for name := range inputSet {
+		inputs = append(inputs, name)
+	}
+	outputs := make([]string, 0, len(outputSet))
+	for name := range outputSet {
+		outputs = append(outputs, name)
+	}
+	sort.Strings(inputs)
+	sort.Strings(outputs)
+	return inputs, outputs
 }
 
 func (r *Runner) printReport(report app.RunReport, elapsed time.Duration) {
@@ -589,6 +759,11 @@ func (r *Runner) printReport(report app.RunReport, elapsed time.Duration) {
 
 		if item.Status != app.StatusConverted && item.Message != "" {
 			fmt.Fprintf(r.stdout, "    %s %s\n", r.dimStyle.Render("reason:"), item.Message)
+		}
+		if item.Command != "" && item.Status != app.StatusSkipped {
+			for _, commandLine := range strings.Split(item.Command, "\n") {
+				fmt.Fprintf(r.stdout, "    %s\n", r.dimStyle.Render("$ "+commandLine))
+			}
 		}
 		for _, hint := range item.InstallHints {
 			fmt.Fprintf(r.stdout, "    %s %s\n", r.hintStyle.Render("install:"), hint.Command)

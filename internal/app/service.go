@@ -26,6 +26,9 @@ type Service struct {
 	// formatCache remembers detected input formats per path; detection can
 	// stat and read files and runs several times per interactive flow.
 	formatCache map[string]domain.Format
+	// backendChoice remembers the user's backend pick per conversion pair so
+	// a batch asks at most once per pair.
+	backendChoice map[string]string
 }
 
 type ConvertRequest struct {
@@ -70,6 +73,7 @@ type JobReport struct {
 	InputFormat  domain.Format
 	OutputFormat domain.Format
 	Backend      string
+	Command      string
 	Status       ReportStatus
 	Message      string
 	Err          error
@@ -100,8 +104,9 @@ func (r RunReport) Count(status ReportStatus) int {
 }
 
 type DependencyStatus struct {
-	Backend  string
-	Commands []CommandStatus
+	Backend     string
+	Description string
+	Commands    []CommandStatus
 }
 
 type CommandStatus struct {
@@ -136,8 +141,9 @@ func NewService(converters []ports.Converter, discovery ports.FileDiscovery, fs 
 		runner:      runner,
 		advisor:     advisor,
 		preferences: preferences,
-		progress:    progress,
-		formatCache: map[string]domain.Format{},
+		progress:      progress,
+		formatCache:   map[string]domain.Format{},
+		backendChoice: map[string]string{},
 	}
 }
 
@@ -219,7 +225,7 @@ func (s *Service) planJobs(ctx context.Context, req ConvertRequest) []plannedJob
 		plan.job = job
 		plan.built = true
 
-		converter, err := s.pickConverter(job.InputFormat, job.OutputFormat, job.Options)
+		converter, err := s.pickConverterForJob(ctx, job)
 		if err != nil {
 			plan.err = err
 			plans = append(plans, plan)
@@ -231,10 +237,76 @@ func (s *Service) planJobs(ctx context.Context, req ConvertRequest) []plannedJob
 	return plans
 }
 
+// pickConverterForJob resolves the backend for a job. When several backends
+// are installed and capable, interactive mode asks the user once per
+// conversion pair; the answer is reused for the rest of the batch.
+func (s *Service) pickConverterForJob(ctx context.Context, job domain.ConvertJob) (ports.Converter, error) {
+	available := s.availableConverters(job.InputFormat, job.OutputFormat, job.Options)
+	if s.prompt == nil || len(available) < 2 {
+		return s.pickConverter(job.InputFormat, job.OutputFormat, job.Options)
+	}
+	// A configured backend preference answers the question up front.
+	if preferred := s.preferences.PreferredConverter(job.InputFormat, job.OutputFormat, available); preferred != nil {
+		return preferred, nil
+	}
+
+	pairKey := job.InputFormat.String() + "\x00" + job.OutputFormat.String()
+	if chosen, ok := s.backendChoice[pairKey]; ok {
+		for _, converter := range available {
+			if converter.ID() == chosen {
+				return converter, nil
+			}
+		}
+	}
+
+	choices := make([]ports.BackendChoice, 0, len(available))
+	for _, converter := range available {
+		choice := ports.BackendChoice{ID: converter.ID()}
+		if described, ok := converter.(ports.Describable); ok {
+			choice.Description = described.Description()
+		}
+		choices = append(choices, choice)
+	}
+
+	selected, err := s.prompt.SelectBackend(ctx, job.InputFormat, job.OutputFormat, choices)
+	if err != nil {
+		return nil, err
+	}
+	for _, converter := range available {
+		if converter.ID() == selected {
+			s.backendChoice[pairKey] = selected
+			return converter, nil
+		}
+	}
+	return nil, fmt.Errorf("%w: unknown backend: %s", domain.ErrInvalidJob, selected)
+}
+
+// availableConverters lists capable converters with all dependencies
+// installed, best first.
+func (s *Service) availableConverters(input domain.Format, output domain.Format, options domain.ConvertOptions) []ports.Converter {
+	var available []ports.Converter
+	for _, converter := range s.preferences.OrderConverters(input, output, s.convertersByPriority(input, output)) {
+		if !converter.CanConvert(input, output) {
+			continue
+		}
+		if len(s.missingDependencies(converter, input, output, options)) == 0 {
+			available = append(available, converter)
+		}
+	}
+	return available
+}
+
 func (s *Service) executeJob(ctx context.Context, index int, total int, plan plannedJob, editedCommand string) JobReport {
 	job := plan.job
 	converter := plan.converter
 	s.progress.JobStart(index, total, job, converter.ID())
+
+	commandUsed := editedCommand
+	if commandUsed == "" {
+		if previewer, ok := converter.(ports.CommandPreviewer); ok {
+			commandUsed = previewCommandLines(previewer.PreviewCommands(job))
+		}
+	}
 
 	var result domain.ConversionResult
 	var err error
@@ -247,6 +319,9 @@ func (s *Service) executeJob(ctx context.Context, index int, total int, plan pla
 	} else {
 		result, err = converter.Convert(ctx, job)
 	}
+	if err == nil {
+		err = s.verifyOutput(result.OutputPath)
+	}
 	if err != nil {
 		s.progress.JobFailed(index, total, job, converter.ID(), err)
 		return JobReport{
@@ -255,6 +330,7 @@ func (s *Service) executeJob(ctx context.Context, index int, total int, plan pla
 			InputFormat:  job.InputFormat,
 			OutputFormat: job.OutputFormat,
 			Backend:      converter.ID(),
+			Command:      commandUsed,
 			Status:       StatusFailed,
 			Message:      err.Error(),
 			Err:          err,
@@ -269,9 +345,37 @@ func (s *Service) executeJob(ctx context.Context, index int, total int, plan pla
 		InputFormat:  result.Job.InputFormat,
 		OutputFormat: result.Job.OutputFormat,
 		Backend:      result.Backend,
+		Command:      commandUsed,
 		Status:       StatusConverted,
 		Message:      "ok",
 	}
+}
+
+// verifyOutput guards against tools that exit zero without producing the
+// requested file (fontforge does this for unsupported bitmap generations).
+func (s *Service) verifyOutput(outputPath string) error {
+	if outputPath == "" {
+		return nil
+	}
+	exists, err := s.fs.Exists(outputPath)
+	if err != nil {
+		return nil
+	}
+	if !exists {
+		return fmt.Errorf("converter reported success but output was not created: %s", outputPath)
+	}
+	return nil
+}
+
+func previewCommandLines(preview ports.CommandPreview) string {
+	if len(preview.Commands) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(preview.Commands))
+	for _, command := range preview.Commands {
+		lines = append(lines, shell.Line(command))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // reviewBatch asks for one confirmation covering every runnable job in the
@@ -599,24 +703,21 @@ func (s *Service) OutputFormatsForInputs(inputs []string, inputOverride domain.F
 
 func (s *Service) OutputFormatChoicesForInputs(inputs []string, inputOverride domain.Format, requestOptions domain.ToolOptions) ([]ports.FormatChoice, error) {
 	outputs := map[domain.Format]bool{}
-	inputFormats := map[domain.Format]bool{}
+	// inputFormats maps each detected input format to one representative
+	// path, so input-aware converters (e.g. animated-svg) can be checked
+	// against real file content.
+	inputFormats := map[domain.Format]string{}
 	for _, input := range inputs {
 		inputFormat, err := s.detectInputFormat(input, inputOverride)
 		if err != nil {
 			return nil, err
 		}
-		inputFormats[inputFormat] = true
+		if _, ok := inputFormats[inputFormat]; !ok {
+			inputFormats[inputFormat] = input
+		}
 
 		for _, converter := range s.converters {
-			if aware, ok := converter.(ports.InputCapabilityAware); ok {
-				for _, capability := range aware.CapabilitiesForInput(input, inputFormat) {
-					if capability.Input == inputFormat {
-						outputs[capability.Output] = true
-					}
-				}
-				continue
-			}
-			for _, capability := range converter.Capabilities() {
+			for _, capability := range converterCapabilitiesForInput(converter, input, inputFormat) {
 				if capability.Input == inputFormat {
 					outputs[capability.Output] = true
 				}
@@ -634,14 +735,23 @@ func (s *Service) OutputFormatChoicesForInputs(inputs []string, inputOverride do
 	for _, output := range formats {
 		choice := ports.FormatChoice{Format: output}
 		var reasons []string
-		for input := range inputFormats {
+		seenBackend := map[string]bool{}
+		for input, path := range inputFormats {
 			options := domain.ConvertOptions{ToolOptions: s.preferences.OptionsFor(input, output).Merge(requestOptions)}
-			available, reason := s.conversionAvailable(input, output, options)
-			if available {
+			for _, converter := range s.availableConverters(input, output, options) {
+				if !hasPairCapability(converterCapabilitiesForInput(converter, path, input), input, output) {
+					continue
+				}
 				choice.Available = true
-				break
+				if !seenBackend[converter.ID()] {
+					seenBackend[converter.ID()] = true
+					choice.Backends = append(choice.Backends, converter.ID())
+				}
 			}
-			if reason != "" {
+			if choice.Available {
+				continue
+			}
+			if _, reason := s.conversionAvailable(input, output, options); reason != "" {
 				reasons = append(reasons, reason)
 			}
 		}
@@ -656,10 +766,31 @@ func (s *Service) OutputFormatChoicesForInputs(inputs []string, inputOverride do
 	return choices, nil
 }
 
+// converterCapabilitiesForInput prefers content-aware capabilities when the
+// converter inspects the input file, falling back to the static matrix.
+func converterCapabilitiesForInput(converter ports.Converter, path string, input domain.Format) []domain.ConversionCapability {
+	if aware, ok := converter.(ports.InputCapabilityAware); ok {
+		return aware.CapabilitiesForInput(path, input)
+	}
+	return converter.Capabilities()
+}
+
+func hasPairCapability(capabilities []domain.ConversionCapability, input domain.Format, output domain.Format) bool {
+	for _, capability := range capabilities {
+		if capability.Input == input && capability.Output == output {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) DependencyStatus() []DependencyStatus {
 	reports := make([]DependencyStatus, 0, len(s.converters))
 	for _, converter := range s.converters {
 		status := DependencyStatus{Backend: converter.ID()}
+		if described, ok := converter.(ports.Describable); ok {
+			status.Description = described.Description()
+		}
 		for _, command := range converter.RequiredCommands() {
 			_, err := s.runner.LookPath(command)
 			status.Commands = append(status.Commands, CommandStatus{

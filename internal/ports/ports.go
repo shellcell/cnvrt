@@ -74,6 +74,9 @@ type FormatChoice struct {
 	Format    domain.Format
 	Available bool
 	Reason    string
+	// Backends lists the installed converter IDs able to produce this
+	// output for the selected inputs, best-ranked first.
+	Backends []string
 }
 
 // OptionSpec describes one tunable converter option that interactive mode
@@ -91,6 +94,18 @@ type OptionSpec struct {
 // Returning nil means there is nothing to ask.
 type OptionsAware interface {
 	OptionSpecs(input domain.Format, output domain.Format) []OptionSpec
+}
+
+// Describable converters provide a one-line human description of what they
+// convert; doctor and backend listings show it.
+type Describable interface {
+	Description() string
+}
+
+// BackendChoice is one selectable backend for a conversion pair.
+type BackendChoice struct {
+	ID          string
+	Description string
 }
 
 type OutputLocation string
@@ -119,6 +134,7 @@ type Prompt interface {
 	SelectFormat(ctx context.Context, choices []FormatChoice) (domain.Format, error)
 	SelectOutputLocation(ctx context.Context, currentDir string) (OutputLocation, error)
 	SelectArchiveAction(ctx context.Context, file domain.FileRef) (domain.ArchiveAction, error)
+	SelectBackend(ctx context.Context, input domain.Format, output domain.Format, choices []BackendChoice) (string, error)
 	SelectSameFormatAction(ctx context.Context, format domain.Format) (domain.TransformAction, error)
 	ConfirmOption(ctx context.Context, title string, description string, defaultValue bool) (bool, error)
 	ConfirmCommand(ctx context.Context, review CommandReview) (CommandReviewAction, string, error)

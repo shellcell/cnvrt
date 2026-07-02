@@ -11,6 +11,15 @@ import (
 type Preferences struct {
 	Pairs       []PairPreference
 	ToolOptions domain.ToolOptions
+	// Backends maps "input->output" pair keys or bare "input" format keys
+	// to ordered preferred backend IDs. When a preferred backend is
+	// installed, it is used without asking.
+	Backends map[string][]string
+}
+
+// BackendKey builds the pair key used in Preferences.Backends.
+func BackendKey(input domain.Format, output domain.Format) string {
+	return input.String() + "->" + output.String()
 }
 
 type PairPreference struct {
@@ -71,6 +80,26 @@ func (p Preferences) preferredTools(input domain.Format, output domain.Format) [
 		pair := p.Pairs[i]
 		if pair.Input == input && pair.Output == output && len(pair.Tools) > 0 {
 			return append([]string(nil), pair.Tools...)
+		}
+	}
+	if tools := p.Backends[BackendKey(input, output)]; len(tools) > 0 {
+		return append([]string(nil), tools...)
+	}
+	if tools := p.Backends[input.String()]; len(tools) > 0 {
+		return append([]string(nil), tools...)
+	}
+	return nil
+}
+
+// PreferredConverter returns the first installed converter matching a
+// configured backend preference for this pair, or nil when none is set.
+func (p Preferences) PreferredConverter(input domain.Format, output domain.Format, available []ports.Converter) ports.Converter {
+	for _, tool := range p.preferredTools(input, output) {
+		tool = strings.ToLower(strings.TrimSpace(tool))
+		for _, converter := range available {
+			if strings.ToLower(converter.ID()) == tool {
+				return converter
+			}
 		}
 	}
 	return nil

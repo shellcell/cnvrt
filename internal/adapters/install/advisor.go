@@ -141,6 +141,21 @@ func packageName(command string, manager string) string {
 		"jupyter": {
 			"brew": "jupyterlab", "apt": "jupyter", "dnf": "jupyter", "yum": "jupyter", "pacman": "jupyter", "zypper": "jupyter", "apk": "jupyter", "pipx": "jupyter-core",
 		},
+		"tesseract": {
+			"brew": "tesseract", "apt": "tesseract-ocr", "dnf": "tesseract", "yum": "tesseract", "pacman": "tesseract", "zypper": "tesseract-ocr", "apk": "tesseract-ocr",
+		},
+		"pdftotext": {
+			"brew": "poppler", "apt": "poppler-utils", "dnf": "poppler-utils", "yum": "poppler-utils", "pacman": "poppler", "zypper": "poppler-tools", "apk": "poppler-utils",
+		},
+		"pdftohtml": {
+			"brew": "poppler", "apt": "poppler-utils", "dnf": "poppler-utils", "yum": "poppler-utils", "pacman": "poppler", "zypper": "poppler-tools", "apk": "poppler-utils",
+		},
+		"espeak-ng": {
+			"brew": "espeak-ng", "apt": "espeak-ng", "dnf": "espeak-ng", "yum": "espeak-ng", "pacman": "espeak-ng", "zypper": "espeak-ng", "apk": "espeak-ng",
+		},
+		"whisper": {
+			"brew": "openai-whisper", "apt": "openai-whisper", "dnf": "openai-whisper", "yum": "openai-whisper", "pacman": "openai-whisper", "zypper": "openai-whisper", "apk": "openai-whisper", "pipx": "openai-whisper",
+		},
 		"djvutxt": {
 			"brew": "djvulibre", "apt": "djvulibre-bin", "dnf": "djvulibre", "yum": "djvulibre", "pacman": "djvulibre", "zypper": "djvulibre", "apk": "djvulibre",
 		},
@@ -181,6 +196,8 @@ func genericPackageName(command string) string {
 		return "graphviz"
 	case "mmdc":
 		return "mermaid-cli"
+	case "pdftotext", "pdftohtml":
+		return "poppler"
 	default:
 		return command
 	}

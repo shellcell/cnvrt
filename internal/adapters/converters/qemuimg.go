@@ -30,6 +30,10 @@ func NewQemuImg(runner ports.CommandRunner) *QemuImg {
 
 func (c *QemuImg) ID() string { return "qemu-img" }
 
+func (c *QemuImg) Description() string {
+	return "VM/disk images: qcow2, vmdk, vdi, vhd/vhdx, raw"
+}
+
 func (c *QemuImg) RequiredCommands() []string { return []string{"qemu-img"} }
 
 func (c *QemuImg) Capabilities() []domain.ConversionCapability {

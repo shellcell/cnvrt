@@ -50,6 +50,10 @@ func NewAnimatedSVG(runner ports.CommandRunner) *AnimatedSVG {
 
 func (c *AnimatedSVG) ID() string { return "animated-svg" }
 
+func (c *AnimatedSVG) Description() string {
+	return "animated svg -> video/gif/webp via headless browser + ffmpeg"
+}
+
 func (c *AnimatedSVG) RequiredCommands() []string { return []string{"ffmpeg"} }
 
 func (c *AnimatedSVG) Capabilities() []domain.ConversionCapability {

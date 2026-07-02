@@ -27,6 +27,10 @@ func NewDjVuLibre(runner ports.CommandRunner) *DjVuLibre {
 
 func (c *DjVuLibre) ID() string { return "djvulibre" }
 
+func (c *DjVuLibre) Description() string {
+	return "djvu -> pdf, tiff, and plain text"
+}
+
 func (c *DjVuLibre) RequiredCommands() []string { return []string{"ddjvu"} }
 
 func (c *DjVuLibre) Capabilities() []domain.ConversionCapability {

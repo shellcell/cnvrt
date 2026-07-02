@@ -30,6 +30,10 @@ func NewJupyter(runner ports.CommandRunner) *Jupyter {
 
 func (c *Jupyter) ID() string { return "jupyter" }
 
+func (c *Jupyter) Description() string {
+	return "notebooks -> html, markdown, python script, pdf"
+}
+
 func (c *Jupyter) RequiredCommands() []string { return []string{"jupyter"} }
 
 func (c *Jupyter) Capabilities() []domain.ConversionCapability {

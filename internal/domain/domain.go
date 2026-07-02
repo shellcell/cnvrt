@@ -24,6 +24,16 @@ const (
 	FormatICNS        Format = "icns"
 	FormatPSD         Format = "psd"
 	FormatJP2         Format = "jp2"
+	FormatXPM         Format = "xpm"
+	FormatXBM         Format = "xbm"
+	FormatPNM         Format = "pnm"
+	FormatPPM         Format = "ppm"
+	FormatPGM         Format = "pgm"
+	FormatPBM         Format = "pbm"
+	FormatTGA         Format = "tga"
+	FormatDDS         Format = "dds"
+	FormatEXR         Format = "exr"
+	FormatQOI         Format = "qoi"
 	FormatSVG         Format = "svg"
 	FormatPDF         Format = "pdf"
 	FormatPS          Format = "ps"
@@ -225,6 +235,17 @@ var aliases = map[string]Format{
 	"psd":         FormatPSD,
 	"jp2":         FormatJP2,
 	"jpeg2000":    FormatJP2,
+	"xpm":         FormatXPM,
+	"xbm":         FormatXBM,
+	"pnm":         FormatPNM,
+	"ppm":         FormatPPM,
+	"pgm":         FormatPGM,
+	"pbm":         FormatPBM,
+	"tga":         FormatTGA,
+	"targa":       FormatTGA,
+	"dds":         FormatDDS,
+	"exr":         FormatEXR,
+	"qoi":         FormatQOI,
 	"svg":         FormatSVG,
 	"pdf":         FormatPDF,
 	"ps":          FormatPS,
@@ -584,7 +605,8 @@ func (f Format) IsArchive() bool {
 
 func (f Format) IsImage() bool {
 	switch f {
-	case FormatPNG, FormatJPEG, FormatWebP, FormatBMP, FormatTIFF, FormatGIF, FormatAPNG, FormatAVIF, FormatHEIC, FormatICO, FormatICNS, FormatPSD, FormatJP2:
+	case FormatPNG, FormatJPEG, FormatWebP, FormatBMP, FormatTIFF, FormatGIF, FormatAPNG, FormatAVIF, FormatHEIC, FormatICO, FormatICNS, FormatPSD, FormatJP2,
+		FormatXPM, FormatXBM, FormatPNM, FormatPPM, FormatPGM, FormatPBM, FormatTGA, FormatDDS, FormatEXR, FormatQOI:
 		return true
 	default:
 		return false
@@ -625,6 +647,56 @@ func (f Format) IsDiskImage() bool {
 	default:
 		return false
 	}
+}
+
+// CategoryOf buckets a format into a human-facing category used for
+// grouping and coloring in the CLI and pickers.
+func CategoryOf(f Format) string {
+	switch f {
+	case FormatDir:
+		return "directory"
+	case FormatGIF, FormatAPNG:
+		return "animation"
+	}
+	if f.IsImage() || f == FormatSVG {
+		return "image"
+	}
+	if f.IsVideo() {
+		return "video"
+	}
+	if f.IsAudio() {
+		return "audio"
+	}
+	if f.IsArchive() {
+		return "archive"
+	}
+	if f.IsFont() {
+		return "font"
+	}
+	if f.IsDiskImage() {
+		return "disk"
+	}
+	switch f {
+	case FormatEPUB, FormatFB2, FormatMOBI, FormatAZW3, FormatDJVU:
+		return "ebook"
+	case FormatTXT, FormatMD, FormatRST, FormatORG, FormatHTML, FormatRTF, FormatTEX, FormatDOCX, FormatODT, FormatPDF, FormatPS, FormatEPS, FormatPPTX:
+		return "doc"
+	case FormatXLSX, FormatODS:
+		return "spreadsheet"
+	case FormatJSON, FormatJSONL, FormatYAML, FormatTOML, FormatCSV, FormatTSV, FormatINI, FormatENV, FormatXML, FormatPLIST, FormatSQL, FormatSQLite, FormatParquet, FormatAvro, FormatORC, FormatArrow, FormatFeather, FormatBSON, FormatMsgpack, FormatCBOR:
+		return "data"
+	case FormatGeoJSON, FormatTopoJSON, FormatKML, FormatKMZ, FormatGPX, FormatSHP, FormatGPKG, FormatGML, FormatOSM, FormatPBF, FormatMBTiles, FormatPMTiles, FormatMVT, FormatWKT, FormatWKB, FormatLAS, FormatLAZ, FormatHGT:
+		return "geo"
+	case FormatOpenAPI, FormatSwagger, FormatJSONSchema, FormatAsyncAPI, FormatGraphQL, FormatProto, FormatProtoSet, FormatThrift, FormatAvroSchema, FormatFlatBuffers, FormatCapnp, FormatWSDL, FormatXSD:
+		return "schema"
+	case FormatDOT, FormatMermaid:
+		return "diagram"
+	case FormatIPYNB, FormatPY:
+		return "code"
+	case FormatOVA, FormatOVF, FormatVBox, FormatVagrantBox:
+		return "vm"
+	}
+	return "custom"
 }
 
 type TransformAction string

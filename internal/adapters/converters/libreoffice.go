@@ -50,6 +50,10 @@ func NewLibreOffice(runner ports.CommandRunner) *LibreOffice {
 
 func (c *LibreOffice) ID() string { return "libreoffice" }
 
+func (c *LibreOffice) Description() string {
+	return "office documents: docx, odt, xlsx, ods, pptx, rtf, csv, pdf"
+}
+
 func (c *LibreOffice) RequiredCommands() []string { return []string{c.command} }
 
 func (c *LibreOffice) Capabilities() []domain.ConversionCapability {

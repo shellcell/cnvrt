@@ -46,6 +46,10 @@ func NewCalibre(runner ports.CommandRunner) *Calibre {
 
 func (c *Calibre) ID() string { return "calibre" }
 
+func (c *Calibre) Description() string {
+	return "e-book conversions: epub, mobi, azw3, fb2, and readable outputs"
+}
+
 func (c *Calibre) RequiredCommands() []string { return []string{"ebook-convert"} }
 
 func (c *Calibre) Capabilities() []domain.ConversionCapability {

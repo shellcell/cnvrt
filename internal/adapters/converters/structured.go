@@ -49,6 +49,10 @@ func NewStructuredData() *StructuredData {
 
 func (c *StructuredData) ID() string { return "structured" }
 
+func (c *StructuredData) Description() string {
+	return "built-in structured data conversions (json, jsonl, yaml, toml, csv, tsv, ini, env, xml, plist) plus txt/md rendering"
+}
+
 func (c *StructuredData) RequiredCommands() []string { return nil }
 
 func (c *StructuredData) Capabilities() []domain.ConversionCapability {

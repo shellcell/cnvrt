@@ -9,9 +9,10 @@ import (
 )
 
 func TestConvertBatchConfirmsOnce(t *testing.T) {
-	converter := &fakeExternalConverter{}
+	created := map[string]bool{}
+	converter := &fakeExternalConverter{created: created}
 	prompt := &fakePrompt{confirmAction: ports.CommandReviewProceed}
-	service := NewService([]ports.Converter{converter}, nil, fakeFS{}, prompt, nil, nil, Preferences{}, nil)
+	service := NewService([]ports.Converter{converter}, nil, fakeFS{created: created}, prompt, nil, nil, Preferences{}, nil)
 
 	report, err := service.Convert(context.Background(), ConvertRequest{
 		Inputs:       []string{"a.svg", "b.svg", "c.svg"},
@@ -36,9 +37,10 @@ func TestConvertBatchConfirmsOnce(t *testing.T) {
 }
 
 func TestConvertBatchCancelSkipsAllJobs(t *testing.T) {
-	converter := &fakeExternalConverter{}
+	created := map[string]bool{}
+	converter := &fakeExternalConverter{created: created}
 	prompt := &fakePrompt{confirmAction: ports.CommandReviewCancel}
-	service := NewService([]ports.Converter{converter}, nil, fakeFS{}, prompt, nil, nil, Preferences{}, nil)
+	service := NewService([]ports.Converter{converter}, nil, fakeFS{created: created}, prompt, nil, nil, Preferences{}, nil)
 
 	report, err := service.Convert(context.Background(), ConvertRequest{
 		Inputs:       []string{"a.svg", "b.svg"},
@@ -57,9 +59,10 @@ func TestConvertBatchCancelSkipsAllJobs(t *testing.T) {
 }
 
 func TestConvertInProcessBackendSkipsConfirmation(t *testing.T) {
-	converter := &fakeInternalConverter{}
+	created := map[string]bool{}
+	converter := &fakeInternalConverter{created: created}
 	prompt := &fakePrompt{confirmAction: ports.CommandReviewCancel}
-	service := NewService([]ports.Converter{converter}, nil, fakeFS{}, prompt, nil, nil, Preferences{}, nil)
+	service := NewService([]ports.Converter{converter}, nil, fakeFS{created: created}, prompt, nil, nil, Preferences{}, nil)
 
 	report, err := service.Convert(context.Background(), ConvertRequest{
 		Inputs:       []string{"a.json"},
@@ -77,18 +80,21 @@ func TestConvertInProcessBackendSkipsConfirmation(t *testing.T) {
 	}
 }
 
-type fakeFS struct{}
+type fakeFS struct {
+	created map[string]bool
+}
 
-func (fakeFS) CurrentDir() (string, error)                                { return ".", nil }
-func (fakeFS) Abs(path string) (string, error)                            { return "/" + path, nil }
-func (fakeFS) Exists(path string) (bool, error)                           { return false, nil }
-func (fakeFS) IsDir(path string) (bool, error)                            { return false, nil }
-func (fakeFS) IsTextFile(path string) (bool, error)                       { return false, nil }
-func (fakeFS) SourceSize(string, domain.Format) (string, bool, error)     { return "", false, nil }
-func (fakeFS) EnsureDir(string) error                                     { return nil }
+func (fs fakeFS) CurrentDir() (string, error)                            { return ".", nil }
+func (fs fakeFS) Abs(path string) (string, error)                        { return "/" + path, nil }
+func (fs fakeFS) Exists(path string) (bool, error)                       { return fs.created[path], nil }
+func (fs fakeFS) IsDir(path string) (bool, error)                        { return false, nil }
+func (fs fakeFS) IsTextFile(path string) (bool, error)                   { return false, nil }
+func (fs fakeFS) SourceSize(string, domain.Format) (string, bool, error) { return "", false, nil }
+func (fs fakeFS) EnsureDir(string) error                                 { return nil }
 
 type fakeExternalConverter struct {
-	calls int
+	calls   int
+	created map[string]bool
 }
 
 func (c *fakeExternalConverter) ID() string                 { return "fake" }
@@ -101,13 +107,18 @@ func (c *fakeExternalConverter) CanConvert(input domain.Format, output domain.Fo
 }
 func (c *fakeExternalConverter) Convert(ctx context.Context, job domain.ConvertJob) (domain.ConversionResult, error) {
 	c.calls++
+	if c.created != nil {
+		c.created[job.OutputPath] = true
+	}
 	return domain.ConversionResult{Job: job, Backend: c.ID(), OutputPath: job.OutputPath}, nil
 }
 func (c *fakeExternalConverter) PreviewCommands(job domain.ConvertJob) ports.CommandPreview {
 	return ports.CommandPreview{Commands: []ports.Command{{Name: "fake", Args: []string{job.InputPath, job.OutputPath}}}, Editable: true}
 }
 
-type fakeInternalConverter struct{}
+type fakeInternalConverter struct {
+	created map[string]bool
+}
 
 func (c *fakeInternalConverter) ID() string                 { return "internal" }
 func (c *fakeInternalConverter) RequiredCommands() []string { return nil }
@@ -118,6 +129,9 @@ func (c *fakeInternalConverter) CanConvert(input domain.Format, output domain.Fo
 	return input == domain.FormatJSON && output == domain.FormatYAML
 }
 func (c *fakeInternalConverter) Convert(ctx context.Context, job domain.ConvertJob) (domain.ConversionResult, error) {
+	if c.created != nil {
+		c.created[job.OutputPath] = true
+	}
 	return domain.ConversionResult{Job: job, Backend: c.ID(), OutputPath: job.OutputPath}, nil
 }
 
@@ -141,6 +155,9 @@ func (p *fakePrompt) SelectArchiveAction(ctx context.Context, file domain.FileRe
 }
 func (p *fakePrompt) SelectSameFormatAction(ctx context.Context, format domain.Format) (domain.TransformAction, error) {
 	return domain.ActionConvert, nil
+}
+func (p *fakePrompt) SelectBackend(ctx context.Context, input domain.Format, output domain.Format, choices []ports.BackendChoice) (string, error) {
+	return choices[0].ID, nil
 }
 func (p *fakePrompt) ConfirmOption(ctx context.Context, title string, description string, defaultValue bool) (bool, error) {
 	return defaultValue, nil

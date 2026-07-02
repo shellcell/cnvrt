@@ -45,6 +45,10 @@ func NewGDAL(runner ports.CommandRunner) *GDAL {
 
 func (c *GDAL) ID() string { return "gdal" }
 
+func (c *GDAL) Description() string {
+	return "geo/vector formats: geojson, kml, gpx, shp, gpkg, and more"
+}
+
 func (c *GDAL) RequiredCommands() []string { return []string{"ogr2ogr"} }
 
 func (c *GDAL) Capabilities() []domain.ConversionCapability {

@@ -33,6 +33,10 @@ func NewArchive() *Archive {
 
 func (c *Archive) ID() string { return "archive" }
 
+func (c *Archive) Description() string {
+	return "built-in zip/tar extraction and creation"
+}
+
 func (c *Archive) RequiredCommands() []string { return nil }
 
 func (c *Archive) Capabilities() []domain.ConversionCapability {

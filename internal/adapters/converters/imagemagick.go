@@ -13,7 +13,19 @@ type ImageMagick struct {
 }
 
 func NewImageMagick(runner ports.CommandRunner) *ImageMagick {
-	inputs := []domain.Format{
+	legacy := []domain.Format{
+		domain.FormatXPM,
+		domain.FormatXBM,
+		domain.FormatPNM,
+		domain.FormatPPM,
+		domain.FormatPGM,
+		domain.FormatPBM,
+		domain.FormatTGA,
+		domain.FormatDDS,
+		domain.FormatEXR,
+		domain.FormatQOI,
+	}
+	inputs := append([]domain.Format{
 		domain.FormatPNG,
 		domain.FormatJPEG,
 		domain.FormatWebP,
@@ -29,8 +41,8 @@ func NewImageMagick(runner ports.CommandRunner) *ImageMagick {
 		domain.FormatJP2,
 		domain.FormatSVG,
 		domain.FormatPDF,
-	}
-	outputs := []domain.Format{
+	}, legacy...)
+	outputs := append([]domain.Format{
 		domain.FormatPNG,
 		domain.FormatJPEG,
 		domain.FormatWebP,
@@ -42,11 +54,25 @@ func NewImageMagick(runner ports.CommandRunner) *ImageMagick {
 		domain.FormatICO,
 		domain.FormatJP2,
 		domain.FormatPDF,
-	}
+	}, legacy...)
 	return &ImageMagick{runner: runner, caps: capabilities(inputs, outputs, 50, true, false)}
 }
 
 func (c *ImageMagick) ID() string { return "imagemagick" }
+
+func (c *ImageMagick) Description() string {
+	return "general image conversion, resize, and compression, including legacy formats (xpm, pnm, tga, dds, exr, qoi)"
+}
+
+func (c *ImageMagick) OptionSpecs(input domain.Format, output domain.Format) []ports.OptionSpec {
+	return []ports.OptionSpec{{
+		Tool:        "imagemagick",
+		Key:         "background",
+		Title:       "Background",
+		Description: "Background for transparency: transparent, white, black, or #rrggbb. Empty keeps the source background.",
+		Default:     "",
+	}}
+}
 
 func (c *ImageMagick) RequiredCommands() []string { return []string{"magick"} }
 
@@ -67,7 +93,16 @@ func (c *ImageMagick) PreviewCommands(job domain.ConvertJob) ports.CommandPrevie
 }
 
 func (c *ImageMagick) args(job domain.ConvertJob) []string {
-	args := []string{job.InputPath}
+	args := []string{}
+	if background := stringOption(job.Options.ToolOptions, "imagemagick", "background", ""); background != "" {
+		if background == "transparent" {
+			background = "none"
+		}
+		args = append(args, "-background", background)
+		args = append(args, job.InputPath, "-flatten")
+	} else {
+		args = append(args, job.InputPath)
+	}
 	if job.Options.Resize != "" {
 		args = append(args, "-resize", job.Options.Resize)
 	}

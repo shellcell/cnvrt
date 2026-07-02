@@ -59,7 +59,14 @@ Both create `./convert` in the current directory.
 - Files without an extension, or with an unknown unsupported extension, are treated as `txt` when their contents look like plain text.
 - Batch mode is tolerant: supported files are converted, unsupported or failed files are reported at the end.
 - A status report is always printed at the end.
-- Before terminal conversions start, `convert` shows the selected backend and planned command with option flags split onto indented lines. You can proceed, cancel that job, or edit supported commands; edited commands run through the shell for that job. Non-terminal runs proceed without prompting.
+- Before terminal conversions start, `convert` shows the selected backend and planned command with option flags split onto indented lines. A batch of multiple files is confirmed once; single jobs can also be edited, and edited commands run through the shell. Non-terminal runs proceed without prompting.
+- When several installed backends can handle a conversion pair, interactive mode asks which backend to use (once per pair per run). Non-terminal runs pick the best-ranked backend automatically. A `"backends"` settings map (`{"svg->png": "resvg", "pdf": "ghostscript"}`) pins preferred backends per pair or per input format and skips the question; `convert config` can set it interactively.
+- The output format selector shows aligned format, category, and backend columns, so you can see which installed tools would handle each conversion before choosing.
+- The final status report prints the exact command used for each job.
+- Pickers support mouse wheel scrolling. `s` cycles list sorting (name, reverse, size, format). The filter input shows a cursor.
+- `doctor` prints one aligned ✓/✗ row per backend with its purpose and install hints; `formats` groups formats by colored category; `backends` shows each backend's description, required commands, and condensed input/output summary.
+- Helper key-hint lines are colored and can be disabled via `convert config` (or `"ui": {"show_help": false}` in settings).
+- Backends may ask for optional conversion settings (audio bitrate, GIF fps, OCR language, bitmap font pixel size, image background, 7z level, plain-text style). Press enter to keep defaults, or skip the whole step. The same options are scriptable via `--opt tool.key=value`.
 - If a generated output path already exists in terminal mode, `convert` asks for a different output path instead of failing immediately.
 - If an archive is provided as the only input, interactive mode offers extraction.
 - If a directory is provided with an archive output format, it creates an archive.
@@ -73,19 +80,29 @@ Both create `./convert` in the current directory.
 
 | Backend | Command | Typical Use |
 |---|---|---|
-| structured | none | JSON, YAML, TOML, CSV, INI, XML, and PLIST conversions |
+| structured | none | JSON, JSONL, YAML, TOML, CSV, TSV, INI, ENV, XML, PLIST conversions, plus plain-text/Markdown rendering |
 | archive | none | `zip`, `tar`, `tar.gz`, `tar.bz2` extraction/creation |
 | resvg | `resvg` | `svg -> png` |
 | animated-svg | `ffmpeg` + browser | animated SVG to video/animation formats |
-| ImageMagick | `magick` | common image conversions, resize, best-effort compression |
-| FFmpeg | `ffmpeg` | video, audio, GIF, animated WebP |
+| ImageMagick | `magick` | common and legacy image conversions, resize, compression, background fill |
+| FFmpeg | `ffmpeg` | video, audio, GIF with palette, audio extraction from video |
 | LibreOffice | `libreoffice` | office documents |
-| Pandoc | `pandoc` | text, Markdown, HTML, EPUB, DOCX, TeX, RTF |
+| Pandoc | `pandoc` | text, Markdown, HTML, EPUB, DOCX, TeX, RTF, RST, Org |
 | Calibre | `ebook-convert` | EPUB, MOBI, AZW3, FB2, PDF e-book workflows |
 | GDAL | `ogr2ogr` | geo/vector map formats |
 | QEMU | `qemu-img` | VM and disk image formats |
-| 7-Zip | `7z` | broad archive/package extraction |
-| FontForge | `fontforge` | font conversions, including bitmap fonts |
+| 7-Zip | `7z` | broad archive/package extraction, compression level control |
+| FontForge | `fontforge` | font conversions, including outline-to-bitmap (bdf/pcf/fon) |
+| Inkscape | `inkscape` | `svg -> pdf/eps/ps`, png fallback |
+| Ghostscript | `gs` | `ps/eps -> pdf`, `pdf -> ps`, PDF re-compression |
+| DjVuLibre | `ddjvu`/`djvutxt` | `djvu -> pdf/tiff/txt` |
+| Poppler | `pdftotext` | PDF text layer extraction to txt/html |
+| Tesseract | `tesseract` | OCR: image -> txt or searchable PDF |
+| Graphviz | `dot` | DOT diagrams to svg/png/pdf |
+| Mermaid | `mmdc` | Mermaid diagrams to svg/png/pdf |
+| Jupyter | `jupyter` | notebooks to html/markdown/script/pdf |
+| TTS | `say`/`espeak-ng` | text to speech: txt/md -> wav/aiff/m4a |
+| Whisper | `whisper` | speech to text: audio/video -> txt (OpenAI Whisper) |
 
 Run:
 

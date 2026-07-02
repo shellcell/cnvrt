@@ -25,6 +25,10 @@ func NewResvg(runner ports.CommandRunner) *Resvg {
 
 func (c *Resvg) ID() string { return "resvg" }
 
+func (c *Resvg) Description() string {
+	return "fast, faithful svg -> png rendering"
+}
+
 func (c *Resvg) RequiredCommands() []string { return []string{"resvg"} }
 
 func (c *Resvg) Capabilities() []domain.ConversionCapability {

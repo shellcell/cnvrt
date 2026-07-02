@@ -24,6 +24,10 @@ func NewMermaid(runner ports.CommandRunner) *Mermaid {
 
 func (c *Mermaid) ID() string { return "mermaid" }
 
+func (c *Mermaid) Description() string {
+	return "mermaid diagrams -> svg, png, pdf"
+}
+
 func (c *Mermaid) RequiredCommands() []string { return []string{"mmdc"} }
 
 func (c *Mermaid) Capabilities() []domain.ConversionCapability {

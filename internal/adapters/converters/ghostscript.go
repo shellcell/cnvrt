@@ -28,6 +28,10 @@ func NewGhostscript(runner ports.CommandRunner) *Ghostscript {
 
 func (c *Ghostscript) ID() string { return "ghostscript" }
 
+func (c *Ghostscript) Description() string {
+	return "ps/eps -> pdf, pdf -> ps, and pdf re-compression"
+}
+
 func (c *Ghostscript) RequiredCommands() []string { return []string{"gs"} }
 
 func (c *Ghostscript) Capabilities() []domain.ConversionCapability {

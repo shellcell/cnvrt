@@ -29,6 +29,10 @@ func NewInkscape(runner ports.CommandRunner) *Inkscape {
 
 func (c *Inkscape) ID() string { return "inkscape" }
 
+func (c *Inkscape) Description() string {
+	return "svg -> pdf/eps/ps print rendering and png fallback"
+}
+
 func (c *Inkscape) RequiredCommands() []string { return []string{"inkscape"} }
 
 func (c *Inkscape) Capabilities() []domain.ConversionCapability {
