@@ -223,6 +223,7 @@ Current built-ins:
 - `archive`: stdlib zip/tar/tar.gz/tar.bz2 extraction and zip/tar/tar.gz creation
 - `structured`: JSON, YAML, TOML, CSV, INI, XML, and PLIST conversions without external tools
 - `resvg`: SVG rendering
+- `animated-svg`: animated SVG rendering through a headless browser and FFmpeg
 - `imagemagick`: broad image conversion, resize, and quality options
 - `ffmpeg`: video, audio, GIF, animated images
 - `libreoffice`: office documents
@@ -234,6 +235,8 @@ Current built-ins:
 - `fontforge`: outline and bitmap font conversions
 
 Config-defined converters are appended after built-ins.
+
+Converters can implement `InputCapabilityAware` to expose capabilities based on a specific input file. The animated SVG backend uses this to show video/animation outputs only when an SVG contains animation markers.
 
 ## Backend Selection
 
@@ -250,6 +253,10 @@ If a backend supports the pair but dependencies are missing, the job is `failed`
 ## Input Detection
 
 Input format detection prefers explicit `-i/--input-format`, then directories, then registered file extensions. If a file has no extension or only an unknown unsupported extension and its content looks like text, it is treated as `txt`. Custom formats with declared converter capabilities are preserved.
+
+## Converter Options
+
+Interactive converter options should default to not changing source parameters when the option is optional. SVG raster/video output size follows this rule: the user is first asked whether to set a size. If skipped, converters preserve source dimensions when possible. If enabled, the input defaults to source dimensions from SVG `width`/`height`, SVG `viewBox`, or readable raster image metadata, falling back to `1024x1024`.
 
 ## Output Naming
 

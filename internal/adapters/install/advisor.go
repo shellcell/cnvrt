@@ -84,6 +84,9 @@ func packageName(command string, manager string) string {
 		"ffmpeg": {
 			"brew": "ffmpeg", "apt": "ffmpeg", "dnf": "ffmpeg", "yum": "ffmpeg", "pacman": "ffmpeg", "zypper": "ffmpeg", "apk": "ffmpeg",
 		},
+		"chromium": {
+			"brew": "chromium", "apt": "chromium-browser", "dnf": "chromium", "yum": "chromium", "pacman": "chromium", "zypper": "chromium", "apk": "chromium",
+		},
 		"magick": {
 			"brew": "imagemagick", "apt": "imagemagick", "dnf": "ImageMagick", "yum": "ImageMagick", "pacman": "imagemagick", "zypper": "ImageMagick", "apk": "imagemagick",
 		},
@@ -157,7 +160,7 @@ func genericPackageName(command string) string {
 func installCommand(manager string, pkg string) string {
 	switch manager {
 	case "brew":
-		if pkg == "basictex" || pkg == "mactex" {
+		if pkg == "basictex" || pkg == "mactex" || pkg == "chromium" || pkg == "google-chrome" {
 			return "brew install --cask " + pkg
 		}
 		return "brew install " + pkg

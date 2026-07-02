@@ -36,5 +36,16 @@ func (c *Resvg) CanConvert(input domain.Format, output domain.Format) bool {
 }
 
 func (c *Resvg) Convert(ctx context.Context, job domain.ConvertJob) (domain.ConversionResult, error) {
-	return runSimple(ctx, c.runner, "resvg", []string{job.InputPath, job.OutputPath}, job, c.ID())
+	args := []string{}
+	if job.Options.Resize != "" {
+		width, height := resizeDimensions(job.Options.Resize)
+		if width != "" {
+			args = append(args, "--width", width)
+		}
+		if height != "" {
+			args = append(args, "--height", height)
+		}
+	}
+	args = append(args, job.InputPath, job.OutputPath)
+	return runSimple(ctx, c.runner, "resvg", args, job, c.ID())
 }

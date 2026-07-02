@@ -167,6 +167,82 @@ func (p *Prompt) SelectSameFormatAction(ctx context.Context, format domain.Forma
 	return sameFormatActionFromIndex(index), nil
 }
 
+func (p *Prompt) ConfirmOption(ctx context.Context, title string, description string, defaultValue bool) (bool, error) {
+	if p.hasTerminal() {
+		selected := defaultValue
+		options := []huh.Option[bool]{
+			huh.NewOption("No", false),
+			huh.NewOption("Yes", true),
+		}
+		if defaultValue {
+			options = []huh.Option[bool]{
+				huh.NewOption("Yes", true),
+				huh.NewOption("No", false),
+			}
+		}
+		field := huh.NewSelect[bool]().
+			Title(title).
+			Description(description).
+			Options(options...).Value(&selected)
+
+		if err := p.runField(ctx, field); err != nil {
+			return false, err
+		}
+		return selected, nil
+	}
+
+	fmt.Fprintln(p.out, p.titleStyle.Render(title))
+	if description != "" {
+		fmt.Fprintln(p.out, p.hintStyle.Render(description))
+	}
+	if defaultValue {
+		fmt.Fprintf(p.out, "  %s Yes\n", p.numberStyle.Render("1."))
+		fmt.Fprintf(p.out, "  %s No\n", p.numberStyle.Render("2."))
+	} else {
+		fmt.Fprintf(p.out, "  %s No\n", p.numberStyle.Render("1."))
+		fmt.Fprintf(p.out, "  %s Yes\n", p.numberStyle.Render("2."))
+	}
+	fmt.Fprint(p.out, p.promptStyle.Render("Choice: "))
+	index, err := p.readSingleIndex(ctx, 2)
+	if err != nil {
+		return false, err
+	}
+	if defaultValue {
+		return index == 0, nil
+	}
+	return index == 1, nil
+}
+
+func (p *Prompt) AskOutputSize(ctx context.Context, defaultSize string) (string, error) {
+	if p.hasTerminal() {
+		value := defaultSize
+		field := huh.NewInput().
+			Title("Output size").
+			Description("Examples: 1024x1024, 1280x720, 800x, x600. Press enter to use the default.").
+			Placeholder(defaultSize).
+			Value(&value)
+
+		if err := p.runField(ctx, field); err != nil {
+			return "", err
+		}
+		if strings.TrimSpace(value) == "" {
+			return defaultSize, nil
+		}
+		return strings.TrimSpace(value), nil
+	}
+
+	fmt.Fprintf(p.out, "%s %s\n", p.hintStyle.Render("Output size examples: 1024x1024, 1280x720, 800x, x600."), p.hintStyle.Render("Default: "+defaultSize))
+	fmt.Fprint(p.out, p.promptStyle.Render("Output size: "))
+	value, err := p.readLine(ctx)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(value) == "" {
+		return defaultSize, nil
+	}
+	return strings.TrimSpace(value), nil
+}
+
 func (p *Prompt) AskResize(ctx context.Context) (string, error) {
 	if p.hasTerminal() {
 		var value string

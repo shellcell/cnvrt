@@ -44,6 +44,7 @@ func (a *App) Run(ctx context.Context, args []string, stdin io.Reader, stdout io
 		converters.NewStructuredData(),
 		converters.NewArchive(),
 		converters.NewResvg(runner),
+		converters.NewAnimatedSVG(runner),
 		converters.NewFFmpeg(runner),
 		converters.NewLibreOffice(runner),
 		converters.NewCalibre(runner),

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/shellcell/convert/internal/domain"
 	"github.com/shellcell/convert/internal/ports"
@@ -49,6 +50,15 @@ func qualityArgs(job domain.ConvertJob) []string {
 		return nil
 	}
 	return []string{"-quality", strconv.Itoa(job.Options.Quality)}
+}
+
+func resizeDimensions(value string) (string, string) {
+	value = strings.TrimSpace(value)
+	parts := strings.SplitN(value, "x", 2)
+	if len(parts) != 2 {
+		return "", ""
+	}
+	return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
 }
 
 func commandError(result ports.CommandResult, err error) error {

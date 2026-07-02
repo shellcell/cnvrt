@@ -55,7 +55,10 @@ func (fs testFileSystem) Abs(path string) (string, error)      { return path, ni
 func (fs testFileSystem) Exists(path string) (bool, error)     { return true, nil }
 func (fs testFileSystem) IsDir(path string) (bool, error)      { return fs.dirs[path], nil }
 func (fs testFileSystem) IsTextFile(path string) (bool, error) { return fs.text[path], nil }
-func (fs testFileSystem) EnsureDir(string) error               { return nil }
+func (fs testFileSystem) SourceSize(string, domain.Format) (string, bool, error) {
+	return "", false, nil
+}
+func (fs testFileSystem) EnsureDir(string) error { return nil }
 
 type testConverter struct {
 	input domain.Format

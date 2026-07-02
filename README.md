@@ -56,6 +56,8 @@ This creates `./convert` in the current directory.
 - If an archive is provided as the only input, interactive mode offers extraction.
 - If a directory is provided with an archive output format, it creates an archive.
 - If input and output image formats match, interactive mode offers compress, resize, or convert/copy.
+- Animated SVG inputs offer animation/video outputs such as `mp4`, `webm`, `gif`, `apng`, and animated `webp`.
+- SVG raster/video conversion has an optional output-size override. The default is to skip it and preserve source dimensions when possible; if enabled, the size input defaults to the source size when available.
 - Unavailable output formats stay visible in the selector, are greyed out with the missing dependency reason, and remain selectable. The conversion report prints install commands for missing tools.
 - Missing dependencies include install suggestions based on the host and available package managers.
 
@@ -66,6 +68,7 @@ This creates `./convert` in the current directory.
 | structured | none | JSON, YAML, TOML, CSV, INI, XML, and PLIST conversions |
 | archive | none | `zip`, `tar`, `tar.gz`, `tar.bz2` extraction/creation |
 | resvg | `resvg` | `svg -> png` |
+| animated-svg | `ffmpeg` + browser | animated SVG to video/animation formats |
 | ImageMagick | `magick` | common image conversions, resize, best-effort compression |
 | FFmpeg | `ffmpeg` | video, audio, GIF, animated WebP |
 | LibreOffice | `libreoffice` | office documents |

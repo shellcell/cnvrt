@@ -290,6 +290,19 @@ func (s *Service) Interactive(ctx context.Context, req InteractiveRequest) (RunR
 	action := req.Action
 	quality := req.Quality
 	resize := req.Resize
+	if resize == "" && s.shouldAskSVGOutputSize(inputs, req.InputFormat, outputFormat) {
+		useSize, err := s.prompt.ConfirmOption(ctx, "Set output size?", "Optional. Choose No to preserve source dimensions when possible.", false)
+		if err != nil {
+			return RunReport{}, err
+		}
+		if useSize {
+			selectedResize, err := s.prompt.AskOutputSize(ctx, s.defaultOutputSize(inputs, req.InputFormat, "1024x1024"))
+			if err != nil {
+				return RunReport{}, err
+			}
+			resize = selectedResize
+		}
+	}
 	if action == "" && outputFormat.IsImage() && s.allInputsMatchFormat(inputs, req.InputFormat, outputFormat) {
 		selectedAction, err := s.prompt.SelectSameFormatAction(ctx, outputFormat)
 		if err != nil {
@@ -371,6 +384,14 @@ func (s *Service) OutputFormatChoicesForInputs(inputs []string, inputOverride do
 		inputFormats[inputFormat] = true
 
 		for _, converter := range s.converters {
+			if aware, ok := converter.(ports.InputCapabilityAware); ok {
+				for _, capability := range aware.CapabilitiesForInput(input, inputFormat) {
+					if capability.Input == inputFormat {
+						outputs[capability.Output] = true
+					}
+				}
+				continue
+			}
 			for _, capability := range converter.Capabilities() {
 				if capability.Input == inputFormat {
 					outputs[capability.Output] = true
@@ -422,6 +443,19 @@ func (s *Service) DependencyStatus() []DependencyStatus {
 				Found: err == nil,
 				Hints: s.installHints([]string{command}),
 			})
+		}
+		if aware, ok := converter.(ports.DependencyStatusAware); ok {
+			for _, check := range aware.DependencyChecks() {
+				commands := check.Commands
+				if len(commands) == 0 {
+					commands = []string{check.Name}
+				}
+				status.Commands = append(status.Commands, CommandStatus{
+					Name:  check.Name,
+					Found: check.Found,
+					Hints: s.installHints(commands),
+				})
+			}
 		}
 		reports = append(reports, status)
 	}
@@ -683,6 +717,42 @@ func (s *Service) allInputsMatchFormat(inputs []string, inputOverride domain.For
 		}
 	}
 	return true
+}
+
+func (s *Service) shouldAskSVGOutputSize(inputs []string, inputOverride domain.Format, output domain.Format) bool {
+	if !svgOutputNeedsSize(output) {
+		return false
+	}
+	return s.allInputsMatchFormat(inputs, inputOverride, domain.FormatSVG)
+}
+
+func (s *Service) defaultOutputSize(inputs []string, inputOverride domain.Format, fallback string) string {
+	var common string
+	for _, input := range inputs {
+		format, err := s.detectInputFormat(input, inputOverride)
+		if err != nil {
+			return fallback
+		}
+		size, ok, err := s.fs.SourceSize(input, format)
+		if err != nil || !ok || size == "" {
+			return fallback
+		}
+		if common == "" {
+			common = size
+			continue
+		}
+		if common != size {
+			return fallback
+		}
+	}
+	if common == "" {
+		return fallback
+	}
+	return common
+}
+
+func svgOutputNeedsSize(output domain.Format) bool {
+	return output.IsImage() || output.IsVideo()
 }
 
 func outputPathFor(input string, inputFormat domain.Format, outputFormat domain.Format, outputDir string, options domain.ConvertOptions) string {

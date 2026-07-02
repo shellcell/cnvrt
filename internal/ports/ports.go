@@ -22,6 +22,20 @@ type RuntimeDependencyAware interface {
 	MissingDependencies(input domain.Format, output domain.Format, options domain.ConvertOptions) []string
 }
 
+type InputCapabilityAware interface {
+	CapabilitiesForInput(path string, input domain.Format) []domain.ConversionCapability
+}
+
+type DependencyCheck struct {
+	Name     string
+	Found    bool
+	Commands []string
+}
+
+type DependencyStatusAware interface {
+	DependencyChecks() []DependencyCheck
+}
+
 type FormatChoice struct {
 	Format    domain.Format
 	Available bool
@@ -45,6 +59,7 @@ type FileSystem interface {
 	Exists(path string) (bool, error)
 	IsDir(path string) (bool, error)
 	IsTextFile(path string) (bool, error)
+	SourceSize(path string, format domain.Format) (string, bool, error)
 	EnsureDir(path string) error
 }
 
@@ -54,6 +69,8 @@ type Prompt interface {
 	SelectOutputLocation(ctx context.Context, currentDir string) (OutputLocation, error)
 	SelectArchiveAction(ctx context.Context, file domain.FileRef) (domain.ArchiveAction, error)
 	SelectSameFormatAction(ctx context.Context, format domain.Format) (domain.TransformAction, error)
+	ConfirmOption(ctx context.Context, title string, description string, defaultValue bool) (bool, error)
+	AskOutputSize(ctx context.Context, defaultSize string) (string, error)
 	AskResize(ctx context.Context) (string, error)
 	AskQuality(ctx context.Context, defaultQuality int) (int, error)
 }

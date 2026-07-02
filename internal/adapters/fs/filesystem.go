@@ -2,10 +2,18 @@ package fsadapter
 
 import (
 	"context"
+	"encoding/xml"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/shellcell/convert/internal/domain"
 )
@@ -45,6 +53,16 @@ func (fs *FileSystem) IsDir(path string) (bool, error) {
 
 func (fs *FileSystem) IsTextFile(path string) (bool, error) {
 	return isTextFile(path)
+}
+
+func (fs *FileSystem) SourceSize(path string, format domain.Format) (string, bool, error) {
+	if format == domain.FormatSVG {
+		return svgSize(path)
+	}
+	if format.IsImage() {
+		return rasterImageSize(path)
+	}
+	return "", false, nil
 }
 
 func (fs *FileSystem) EnsureDir(path string) error {
@@ -148,4 +166,99 @@ func looksLikeText(data []byte) bool {
 		}
 	}
 	return control*100 <= len(data)*30
+}
+
+func rasterImageSize(path string) (string, bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", false, err
+	}
+	defer file.Close()
+
+	config, _, err := image.DecodeConfig(file)
+	if err != nil || config.Width <= 0 || config.Height <= 0 {
+		return "", false, nil
+	}
+	return strconv.Itoa(config.Width) + "x" + strconv.Itoa(config.Height), true, nil
+}
+
+func svgSize(path string) (string, bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", false, err
+	}
+	defer file.Close()
+
+	decoder := xml.NewDecoder(file)
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			return "", false, nil
+		}
+		if err != nil {
+			return "", false, err
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok || strings.ToLower(start.Name.Local) != "svg" {
+			continue
+		}
+
+		attrs := map[string]string{}
+		for _, attr := range start.Attr {
+			attrs[strings.ToLower(attr.Name.Local)] = attr.Value
+		}
+		if width, ok := svgLength(attrs["width"]); ok {
+			if height, ok := svgLength(attrs["height"]); ok {
+				return sizeString(width, height), true, nil
+			}
+		}
+		if width, height, ok := svgViewBoxSize(attrs["viewbox"]); ok {
+			return sizeString(width, height), true, nil
+		}
+		return "", false, nil
+	}
+}
+
+func svgLength(value string) (float64, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.HasSuffix(value, "%") {
+		return 0, false
+	}
+	end := 0
+	for end < len(value) {
+		ch := value[end]
+		if (ch >= '0' && ch <= '9') || ch == '.' || ch == '+' || ch == '-' {
+			end++
+			continue
+		}
+		break
+	}
+	if end == 0 {
+		return 0, false
+	}
+	number, err := strconv.ParseFloat(value[:end], 64)
+	if err != nil || number <= 0 {
+		return 0, false
+	}
+	return number, true
+}
+
+func svgViewBoxSize(value string) (float64, float64, bool) {
+	fields := strings.Fields(strings.ReplaceAll(strings.TrimSpace(value), ",", " "))
+	if len(fields) != 4 {
+		return 0, 0, false
+	}
+	width, err := strconv.ParseFloat(fields[2], 64)
+	if err != nil || width <= 0 {
+		return 0, 0, false
+	}
+	height, err := strconv.ParseFloat(fields[3], 64)
+	if err != nil || height <= 0 {
+		return 0, 0, false
+	}
+	return width, height, true
+}
+
+func sizeString(width float64, height float64) string {
+	return strconv.Itoa(max(1, int(math.Round(width)))) + "x" + strconv.Itoa(max(1, int(math.Round(height))))
 }
