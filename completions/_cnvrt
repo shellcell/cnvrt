@@ -1,0 +1,40 @@
+#compdef cnvrt
+
+_cnvrt() {
+  local -a commands
+  commands=(
+    'doctor:check external converter dependencies'
+    'formats:list known and config-registered formats'
+    'backends:list converter backends'
+    'config:interactively edit and save user settings'
+    'add-format:interactively add a config-defined format'
+    'add-tool:interactively add a config-defined converter tool'
+    'help:show usage'
+    'version:print version and exit'
+  )
+
+  _arguments -s \
+    '(-i --input-format)'{-i,--input-format}'[override the detected input format]:format:' \
+    '(-o --output-format)'{-o,--output-format}'[output format]:format:' \
+    '--out-dir[output directory]:directory:_files -/' \
+    '--overwrite[overwrite existing output files]' \
+    '--quality[best-effort quality value for supported backends]:value:' \
+    '--action[same-format action]:action:(convert compress resize)' \
+    '--compress[compress same-format image output]' \
+    '--resize[resize value, e.g. 800x or 50%]:value:' \
+    '--opt[backend option as tool.key=value, repeatable]:option:' \
+    '(-v --version)'{-v,--version}'[print version and exit]' \
+    '(-h --help)'{-h,--help}'[show usage]' \
+    '1:command or file:->first' \
+    '*:file:_files'
+
+  case "$state" in
+    first)
+      _alternative \
+        "commands:command:(($commands))" \
+        'files:file:_files'
+      ;;
+  esac
+}
+
+_cnvrt "$@"

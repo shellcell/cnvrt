@@ -1,0 +1,120 @@
+.Dd July 19, 2026
+.Dt CNVRT 1
+.Os
+.Sh NAME
+.Nm cnvrt
+.Nd interactive CLI for file conversion
+.Sh SYNOPSIS
+.Nm
+.Op Fl i Ar format
+.Op Fl o Ar format
+.Op Fl -out-dir Ar dir
+.Op Fl -overwrite
+.Op Fl -quality Ar value
+.Op Fl -action Ar action
+.Op Fl -compress
+.Op Fl -resize Ar value
+.Op Fl -opt Ar tool.key=value
+.Op Ar file ...
+.Nm
+.Cm doctor | formats | backends | config | add-format | add-tool | version
+.Sh DESCRIPTION
+.Nm
+converts files between formats by driving the best available backend tool
+(FFmpeg, ImageMagick, Pandoc, LibreOffice and many more).
+Run without arguments it selects inputs and the output format
+interactively; with arguments it converts directly, in batches, or whole
+directories.
+Archives are extracted or created, structured data (JSON, YAML, TOML,
+CSV, ...) is converted without external tools, and same-format runs can
+compress or resize instead.
+.Pp
+Output goes to the current directory by default.
+Batches are tolerant:
+supported files convert, and unsupported or failed ones are listed in the
+final report together with the exact command used for each job.
+.Sh COMMANDS
+.Bl -tag -width "add-format"
+.It Cm doctor
+Check which backends are installed, what they are for, and how to install
+the missing ones.
+.It Cm formats
+List known and config-registered formats, grouped by category.
+.It Cm backends
+List each backend's description, required commands and supported pairs.
+.It Cm config
+Interactively edit and save user settings.
+.It Cm add-format
+Interactively register a new format via config.
+.It Cm add-tool
+Interactively register a new converter tool via config.
+.It Cm version
+Print the version and exit (also
+.Fl v ,
+.Fl -version ) .
+.El
+.Sh OPTIONS
+.Bl -tag -width Ds
+.It Fl i , Fl -input-format Ar format
+Override the detected input format.
+.It Fl o , Fl -output-format Ar format
+Output format.
+.It Fl -out-dir Ar dir
+Output directory.
+.It Fl -overwrite
+Overwrite existing output files.
+.It Fl -quality Ar value
+Best-effort quality value passed to supported backends.
+.It Fl -action Ar action
+Same-format action:
+.Ql convert ,
+.Ql compress
+or
+.Ql resize .
+.It Fl -compress
+Compress same-format image output.
+.It Fl -resize Ar value
+Resize value for supported image and video backends, for example
+.Ql 800x
+or
+.Ql 50% .
+.It Fl -opt Ar tool.key=value
+Backend option, repeatable.
+For example
+.Ql ffmpeg.audio_bitrate=320k
+or
+.Ql 7z.level=9 .
+.El
+.Sh EXAMPLES
+Convert one file by explicit paths:
+.Bd -literal -offset indent
+cnvrt input.svg output.png
+.Ed
+.Pp
+Batch-convert by format:
+.Bd -literal -offset indent
+cnvrt -i svg -o png a.svg b.svg
+.Ed
+.Pp
+Convert every supported file in a directory:
+.Bd -literal -offset indent
+cnvrt -o png ../../
+.Ed
+.Pp
+Create an archive, extract an archive:
+.Bd -literal -offset indent
+cnvrt -o zip ./directory
+cnvrt archive.tar.gz
+.Ed
+.Pp
+Extract audio with a backend option:
+.Bd -literal -offset indent
+cnvrt --opt ffmpeg.audio_bitrate=320k -o mp3 song.wav
+.Ed
+.Sh SEE ALSO
+The
+.Cm doctor
+command lists the backend tools available on this host.
+.Pp
+Project page:
+.Lk https://github.com/shellcell/cnvrt

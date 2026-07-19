@@ -54,6 +54,7 @@ cnvrt --opt ffmpeg.audio_bitrate=320k -o mp3 song.wav
 | `--resize` | Resize value for supported image and video backends, e.g. `800x`, `50%` |
 | `--action` | Same-format action: `convert`, `compress`, or `resize` |
 | `--opt` | Backend option as `tool.key=value`, repeatable |
+| `-v`, `--version` | Print version and exit (also the `version` command) |
 
 ## How It Works
 

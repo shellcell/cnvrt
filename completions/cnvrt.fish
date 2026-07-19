@@ -1,0 +1,21 @@
+# fish completion for cnvrt
+
+complete -c cnvrt -n __fish_use_subcommand -a doctor -d 'Check external converter dependencies'
+complete -c cnvrt -n __fish_use_subcommand -a formats -d 'List known and config-registered formats'
+complete -c cnvrt -n __fish_use_subcommand -a backends -d 'List converter backends'
+complete -c cnvrt -n __fish_use_subcommand -a config -d 'Interactively edit and save user settings'
+complete -c cnvrt -n __fish_use_subcommand -a add-format -d 'Interactively add a config-defined format'
+complete -c cnvrt -n __fish_use_subcommand -a add-tool -d 'Interactively add a config-defined converter tool'
+complete -c cnvrt -n __fish_use_subcommand -a version -d 'Print version and exit'
+
+complete -c cnvrt -s i -l input-format -x -d 'Override the detected input format'
+complete -c cnvrt -s o -l output-format -x -d 'Output format'
+complete -c cnvrt -l out-dir -x -a '(__fish_complete_directories)' -d 'Output directory'
+complete -c cnvrt -l overwrite -d 'Overwrite existing output files'
+complete -c cnvrt -l quality -x -d 'Best-effort quality value for supported backends'
+complete -c cnvrt -l action -x -a 'convert compress resize' -d 'Same-format action'
+complete -c cnvrt -l compress -d 'Compress same-format image output'
+complete -c cnvrt -l resize -x -d 'Resize value, e.g. 800x or 50%'
+complete -c cnvrt -l opt -x -d 'Backend option as tool.key=value, repeatable'
+complete -c cnvrt -s v -l version -d 'Print version and exit'
+complete -c cnvrt -s h -l help -d 'Show usage'

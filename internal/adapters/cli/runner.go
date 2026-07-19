@@ -353,6 +353,7 @@ func (r *Runner) printUsageTo(w io.Writer) {
 	fmt.Fprintln(w, "  config    interactively edit and save user settings")
 	fmt.Fprintln(w, "  add-format  interactively add a config-defined format")
 	fmt.Fprintln(w, "  add-tool    interactively add a config-defined converter tool")
+	fmt.Fprintln(w, "  version     print version and exit (also -v, --version)")
 }
 
 func (r *Runner) addFormat() int {
